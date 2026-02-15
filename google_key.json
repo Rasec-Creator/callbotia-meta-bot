@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "reuniones-callbotia",
+  "private_key_id": "8ed159af5b0c674b3b1029c31475abbe5092ff83",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCnr59Xn8P8N+DR\nRzWkWDest4J+ttXmXyJP3T6u88UmfnHcnan904NE0j4Dyb4fSQdY3U4EK52rRg02\n3d2ty7cK5AwGSv8IWqt/Tpu+W3ju9A6Jh205KUc2Ocm6cpl3IiqU3bjrE1/9iyjj\n7u9VFdx9w3WowF7lntgPk4L2afLWC6NEPOYx+lzgvcclZ2jc6AZQN5C4Bzvc1a4x\n5+KTdsUCSvIyDdgXANYtXgjgXuJO1pOmQSbt3RI1tPv7+gMNb3SLHbhfdVeXGtaV\nRaanNarXtqikqhW5x5bx4rBy8ommYMymzxzJTazLAHeWOnU1OE84V7l26DL/yT+j\n9C3+7tcxAgMBAAECggEABGbaQGVxTA0W21xRIDajnk0b5+HtsZqUm6Zjl2abqbcr\ntUs007TdbyCAub5uPZAZpgX7K6XBQaZFwW3nosDXleANU8Eph2MP7OtxY0WviHN2\nI6FfM98T32yUnjUVA7kgVCBeeUDczHRLQ/GsYF5B5Gt0Cq4jRfsaa1nay0dvm5nc\nNhcq5edao3NCrrJwuCvGD/K6OGtLCLNKxxcLHGoJPF9gKi4Z+UeZfa4MKqFJa3cj\nx6mdRno/JhoV31kNkPm9x2RJfwMnBjV0UNA3hlgeNvYUMbSc+jnG8SQRCP37oamt\nSXvGeFr5FpBcmMA7NR0RdBL1dIzYmY9/agle8CwPNQKBgQDbJ6ZRwEnO5OO3LSGQ\npL2pnX/2FEZuL9cMKtkmwLONPLmYodMS1ZteCK9RQN7GFxOTwP9aZfpZaIMOvwIq\nYnVdbTvDf29/2UtrL02ZK7MC5o6M66awoX3dt82ESX0ifeZIx7GXRp7IOxmNt4c/\npazlX3JR69aafiF5gLLogzFULQKBgQDD4MVd0Fw95TBMb7d+Us2Nv8L8KxGXGg8O\nmYo6eMO7Ml3CqE3avRD7KdU6otF+JberLAXkHi9PEw4F/qL2+6itaCRx/faGarKC\nmD0QSxMlbxmyDqaKutRAsrJnzW8Hz4r5IyXkMRfmPt6E7quYtEBeG4ewXjXvM00r\nUFpmtobdlQKBgBZ0cpMvy6A6TabIJgdHCfPmImVZYHoLxtIFVeilmAAht7aO5iyo\n3Fl/NE90AR9039mkzcU6a7NbhQouwg8LtZDUD2qRlSAZaKPb3eyS0K28Z+DCiHrS\noS3lllY2nW66Ta0pYOXqI3zKqWye4GnCFPwPkowYSQ3dXJqxeCNgxd4lAoGAK5/v\n1QkGwjI9I4juERBX/23p+0eMT17aY6IGiydCUHrTLvtU+5aIJagXeUux5Kp50YGo\nfjnKx42y3drsaJ1738MF+u1Y7m7s+vD1CJ/vz7KCwolIxjT9+LrTyRKT2+V5Sitt\n0PiuHfV6kZimVwguHcd73OfekzuVwEPRHncgalECgYA0Xo3et9qJlvk/wY4s8iSU\niP4iYQNdV06WjuarDirJ8xqgfk6G5iW9TPmgHIe0mwYZ+OybpdO1J6lUxJdft6Bz\nmJDHbcVTIKFxpnjOwt/mRLU5TGnNool2LWEOmv70MU5n20Opv3o7LOXhUFNmCwlI\nszdQ8sT0pD4K+ORS0gtGxw==\n-----END PRIVATE KEY-----\n",
+  "client_email": "calendar@reuniones-callbotia.iam.gserviceaccount.com",
+  "client_id": "117404395647786534039",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/calendar%40reuniones-callbotia.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

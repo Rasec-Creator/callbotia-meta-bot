@@ -5,6 +5,10 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import DictCursor
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+import datetime
+import json
 
 load_dotenv()
 app = Flask(__name__)
@@ -15,6 +19,9 @@ PHONE_ID = os.getenv("PHONE_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 PROMPT_ID = os.getenv("PROMPT_ID")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Configuracion de Google
+SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def get_db_connection():
     return psycopg2.connect(os.getenv("DATABASE_URL"))
@@ -35,6 +42,32 @@ def init_db():
     cur.close()
     conn.close()
 
+def agendar_reunion(fecha_iso, nombre_cliente, telefono):
+    """
+    Funcion que llama la IA para crear el evento.
+    fecha_iso debe venir en formato '2026-02-18T10:00:00'
+    """
+    try:
+        # Autenticación
+        creds = service_account.Credentials.from_json_keyfile_name(
+            'google_key.json', scopes=SCOPES)
+        service = build('calendar', 'v3', credentials=creds)
+
+        evento = {
+            'summary': f'Reunión CallBotIA: {nombre_cliente}',
+            'description': f'Consulta técnica de lead de WhatsApp. Tel: {telefono}',
+            'start': {'dateTime': fecha_iso, 'timeZone': 'America/Argentina/Buenos_Aires'},
+            'end': {
+                'dateTime': (datetime.datetime.fromisoformat(fecha_iso) + datetime.timedelta(minutes=30)).isoformat(),
+                'timeZone': 'America/Argentina/Buenos_Aires'
+            },
+        }
+
+        evento_creado = service.events().insert(calendarId='tu_email@gmail.com', body=evento).execute()
+        return f"Reunión agendada con éxito: {evento_creado.get('htmlLink')}"
+    except Exception as e:
+        return f"Error al agendar: {e}"
+    
 def obtener_o_crear_conversacion(phone_number, texto_usuario):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=DictCursor)
@@ -62,9 +95,8 @@ def obtener_o_crear_conversacion(phone_number, texto_usuario):
     conn.close()
     return conv_id
 
-def consultar_ia(texto_usuario, conversation_id):
+def consultar_ia(texto_usuario, conversation_id, phone_number): # Agregamos phone_number
     try:
-        # Usamos la Responses API para mantener la memoria
         response = client.responses.create(
             model="gpt-4o-mini", 
             prompt={"id": PROMPT_ID},
@@ -72,9 +104,32 @@ def consultar_ia(texto_usuario, conversation_id):
             input=texto_usuario 
         )
         
+        # Revisamos si la IA quiere ejecutar una función
         for item in response.output:
+            if item.type == 'call' and item.call.name == 'agendar_reunion':
+                # Extraemos los datos que capturó la IA
+                args = item.call.arguments # Ya viene como dict o string según versión
+                if isinstance(args, str): args = json.loads(args)
+                
+                # Ejecutamos TU función de Google Calendar
+                resultado = agendar_reunion(
+                    fecha_iso=args['fecha_hora'], 
+                    nombre_cliente=args['nombre_cliente'],
+                    telefono=phone_number
+                )
+                
+                # Le devolvemos el resultado a la IA para que ella responda al usuario
+                # En la Responses API, esto genera una nueva vuelta (turn)
+                final_response = client.responses.create(
+                    model="gpt-4o-mini",
+                    conversation=conversation_id,
+                    input=resultado # La IA verá "Reunión agendada con éxito..."
+                )
+                return final_response.output[0].content[0].text
+
             if item.type == 'message' and item.role == 'assistant':
                 return item.content[0].text
+                
         return "Recibí una respuesta pero no contenía texto."
     except Exception as e:
         print(f"error con responses api: {e}")
@@ -94,7 +149,7 @@ def recibir_mensajes():
 
             # CORREGIDO: Ahora pasamos ambos argumentos
             conv_id = obtener_o_crear_conversacion(numero_destino, texto_usuario)
-            respuesta_ia = consultar_ia(texto_usuario, conv_id)
+            respuesta_ia = consultar_ia(texto_usuario, conv_id, numero_destino)
             enviar_mensaje(numero_destino, respuesta_ia)
             
     return jsonify({"status": "ok"}), 200
