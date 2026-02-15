@@ -47,8 +47,13 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
     Funcion que llama la IA para crear el evento.
     fecha_iso debe venir en formato '2026-02-18T10:00:00'
     """
+    print(f"📅 Intentando agendar: {nombre_cliente} ({telefono}) para el {fecha_iso}")
     try:
         # Autenticación
+        if not os.path.exists('google_key.json'):
+            print("❌ ERROR: No se encontró el archivo google_key.json")
+            return "Error interno: Falta configuración de Google."
+
         creds = service_account.Credentials.from_json_keyfile_name(
             'google_key.json', scopes=SCOPES)
         service = build('calendar', 'v3', credentials=creds)
@@ -63,39 +68,18 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
             },
         }
 
+        print("🚀 Enviando petición a Google Calendar API...")
         evento_creado = service.events().insert(calendarId='tu_email@gmail.com', body=evento).execute()
-        return f"Reunión agendada con éxito: {evento_creado.get('htmlLink')}"
-    except Exception as e:
-        return f"Error al agendar: {e}"
-    
-def obtener_o_crear_conversacion(phone_number, texto_usuario):
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=DictCursor)
-    
-    cur.execute("SELECT conversation_id FROM leads WHERE telefono = %s", (phone_number,))
-    result = cur.fetchone()
-    
-    if result and result['conversation_id']:
-        conv_id = result['conversation_id']
-        cur.execute('''
-            UPDATE leads SET ultimo_mensaje = %s, fecha_actualizacion = CURRENT_TIMESTAMP 
-            WHERE telefono = %s
-        ''', (texto_usuario, phone_number))
-    else:
-        # En la Responses API creamos una conversation
-        conv = client.conversations.create()
-        conv_id = conv.id
-        cur.execute('''
-            INSERT INTO leads (telefono, conversation_id, ultimo_mensaje) 
-            VALUES (%s, %s, %s)
-        ''', (phone_number, conv_id, texto_usuario))
-    
-    conn.commit()
-    cur.close()
-    conn.close()
-    return conv_id
+        
+        url_reunion = evento_creado.get('htmlLink')
+        print(f"✅ ¡Éxito! Reunión creada: {url_reunion}")
+        return f"Reunión agendada con éxito: {url_reunion}"
 
-def consultar_ia(texto_usuario, conversation_id, phone_number): # Agregamos phone_number
+    except Exception as e:
+        print(f"❌ ERROR en agendar_reunion: {str(e)}")
+        return f"Error al agendar: {e}"
+
+def consultar_ia(texto_usuario, conversation_id, phone_number):
     try:
         response = client.responses.create(
             model="gpt-4o-mini", 
@@ -104,35 +88,46 @@ def consultar_ia(texto_usuario, conversation_id, phone_number): # Agregamos phon
             input=texto_usuario 
         )
         
-        # Revisamos si la IA quiere ejecutar una función
+        # Analizamos qué decidió hacer la IA
         for item in response.output:
+            # Caso 1: La IA decide que DEBE llamar a la función
             if item.type == 'call' and item.call.name == 'agendar_reunion':
-                # Extraemos los datos que capturó la IA
-                args = item.call.arguments # Ya viene como dict o string según versión
+                args = item.call.arguments
                 if isinstance(args, str): args = json.loads(args)
                 
-                # Ejecutamos TU función de Google Calendar
+                print(f"📞 ¡KAT-IA ACTIVÓ LA FUNCIÓN! Datos capturados: {args}")
+                
+                # Ejecutamos la lógica de Google Calendar
                 resultado = agendar_reunion(
                     fecha_iso=args['fecha_hora'], 
                     nombre_cliente=args['nombre_cliente'],
                     telefono=phone_number
                 )
                 
-                # Le devolvemos el resultado a la IA para que ella responda al usuario
-                # En la Responses API, esto genera una nueva vuelta (turn)
+                print(f"📤 Enviando resultado de la función a la IA: {resultado}")
+                
+                # Segunda vuelta para que la IA confirme al usuario
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
-                    input=resultado # La IA verá "Reunión agendada con éxito..."
+                    input=resultado 
                 )
-                return final_response.output[0].content[0].text
-
-            if item.type == 'message' and item.role == 'assistant':
-                return item.content[0].text
                 
+                respuesta_final = final_response.output[0].content[0].text
+                print(f"💬 Confirmación final de Kat-IA: {respuesta_final}")
+                return respuesta_final
+
+            # Caso 2: La IA responde un mensaje común (chat)
+            if item.type == 'message' and item.role == 'assistant':
+                texto_respuesta = item.content[0].text
+                print(f"💬 Kat-IA respondió sin llamar a funciones: {texto_respuesta[:50]}...")
+                return texto_respuesta
+                
+        print("⚠️ Advertencia: La IA no devolvió ni mensaje ni llamada a función.")
         return "Recibí una respuesta pero no contenía texto."
+
     except Exception as e:
-        print(f"error con responses api: {e}")
+        print(f"❌ ERROR CRÍTICO en consultar_ia: {str(e)}")
         return "Hubo un error en la comunicación, por favor intente más tarde."
 
 @app.route('/webhook', methods=['POST'])
