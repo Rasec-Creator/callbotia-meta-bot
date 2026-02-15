@@ -143,7 +143,7 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
                     model="gpt-4o-mini",
                     conversation=conversation_id,
                     input=[{
-                        "type": "function_call_output",
+                        "type": "function_call_outputs",
                         "call_id": call_id,
                         "output": resultado_proceso
                     }]
