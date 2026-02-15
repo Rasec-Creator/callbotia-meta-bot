@@ -143,11 +143,11 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
-                    input=[{
+                    input={
                         "type": "function_call_output",
                         "call_id": call_id,
                         "output": resultado_proceso
-                    }]
+                    }
                 )
                 
                 for final_item in final_response.output:
