@@ -209,33 +209,71 @@ def ver_dashboard():
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=DictCursor)
-        # Traemos todos los leads ordenados por la última vez que escribieron
-        cur.execute("SELECT id, telefono, ultimo_mensaje, fecha_actualizacion FROM leads ORDER BY fecha_actualizacion DESC")
+        # Traemos también el conversation_id para saber si está vacío o no
+        cur.execute("SELECT id, telefono, ultimo_mensaje, fecha_actualizacion, conversation_id FROM leads ORDER BY fecha_actualizacion DESC")
         leads = cur.fetchall()
         cur.close()
         conn.close()
 
-        # Armamos un HTML ultra básico para que se vea ordenado
         html = """
         <html>
-        <head><title>Dashboard CallBotIA</title></head>
-        <body style="font-family: Arial, sans-serif; padding: 20px;">
+        <head>
+            <title>Dashboard CallBotIA</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 20px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                th { background-color: #f2f2f2; }
+                .btn-del { color: white; background-color: #ff4444; border: none; padding: 8px 12px; cursor: pointer; border-radius: 4px; text-decoration: none; }
+                .btn-del:hover { background-color: #cc0000; }
+            </style>
+        </head>
+        <body>
             <h2>Leads de CallBotIA - Kat-IA</h2>
-            <table border="1" style="width:100%; border-collapse: collapse;">
-                <tr style="background-color: #f2f2f2;">
+            <p><i>Si el bot tira error 400, borrá el registro para resetear la charla.</i></p>
+            <table>
+                <tr>
                     <th>ID</th>
                     <th>Teléfono</th>
                     <th>Último Mensaje</th>
                     <th>Fecha</th>
+                    <th>Acciones</th>
                 </tr>
         """
         for lead in leads:
-            html += f"<tr><td>{lead[0]}</td><td>{lead[1]}</td><td>{lead[2]}</td><td>{lead[3]}</td></tr>"
+            # Agregamos un botón que llama a la ruta /eliminar/<id>
+            html += f"""
+                <tr>
+                    <td>{lead['id']}</td>
+                    <td>{lead['telefono']}</td>
+                    <td>{lead['ultimo_mensaje']}</td>
+                    <td>{lead['fecha_actualizacion']}</td>
+                    <td>
+                        <a href="/eliminar/{lead['id']}" class="btn-del" onclick="return confirm('¿Seguro querés borrar este lead y resetear su chat?')">Eliminar</a>
+                    </td>
+                </tr>"""
         
         html += "</table></body></html>"
         return html
     except Exception as e:
         return f"<h3>Error al cargar el dashboard:</h3><p>{e}</p>"
+
+# NUEVA RUTA: Para procesar el borrado
+@app.route('/eliminar/<int:id>')
+def eliminar_lead(id):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # Borramos físicamente el registro
+        cur.execute("DELETE FROM leads WHERE id = %s", (id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"🗑️ Lead ID {id} eliminado de la base de datos.")
+        # Redirigimos de vuelta al dashboard para ver el cambio
+        return """<script>alert('Lead eliminado con éxito'); window.location.href='/dashboard';</script>"""
+    except Exception as e:
+        return f"Error al eliminar: {e}"
 
 if __name__ == '__main__':
     init_db() # Inicializamos la tabla
