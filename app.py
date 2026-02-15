@@ -116,6 +116,7 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
 def consultar_ia(texto_usuario, conversation_id, phone_number):
     print(f"🤖 Consultando a Kat-IA para el usuario {phone_number}...")
     try:
+        # 1. Primera llamada a la Responses API
         response = client.responses.create(
             model="gpt-4o-mini", 
             prompt={"id": PROMPT_ID},
@@ -123,13 +124,16 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
             input=texto_usuario 
         )
         
+        # Guardamos la salida inicial para mantener el historial
+        hilo_mensajes = response.output
+
         for item in response.output:
-            # Detectamos la llamada a la función
-            if item.type == 'function_call':
-                call_id = item.id
+            # 2. Si la IA pide usar la herramienta
+            if item.type == 'function_call' and item.name == 'agendar_reunion':
+                call_id = item.call_id # Usamos call_id como dice la docu
                 args = json.loads(item.arguments) if isinstance(item.arguments, str) else item.arguments
                 
-                print(f"📞 Kat-IA activó {item.name} (ID: {call_id})")
+                print(f"📞 Kat-IA pidió agendar (ID: {call_id})")
                 
                 resultado_proceso = agendar_reunion(
                     fecha_iso=args['fecha_hora'], 
@@ -137,28 +141,32 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
                     telefono=phone_number
                 )
                 
-                # Turno 2: Enviamos el resultado como UN ARRAY de UN SOLO OBJETO
-                print(f"🔄 Cerrando ciclo con OpenAI...")
+                # 3. Segunda llamada: Enviamos el resultado siguiendo el esquema oficial
+                print("🔄 Enviando resultado a OpenAI...")
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
-                    input=f"{resultado_proceso}. Confirmale al usuario que ya está listo."
+                    input=[{
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({"resultado": resultado_proceso}) # Lo mandamos como JSON string
+                    }]
                 )
                 
-                # Buscamos el mensaje final de texto para mandarlo por WhatsApp
+                # 4. Buscamos la respuesta final de texto
                 for final_item in final_response.output:
                     if final_item.type == 'message':
                         return final_item.content[0].text
 
-            # Si la IA respondió directamente sin llamar a funciones
+            # Si es un mensaje directo
             if item.type == 'message':
                 return item.content[0].text
                 
-        return "Kat-IA procesó la solicitud pero no generó texto."
+        return "Kat-IA no generó una respuesta de texto."
 
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO en consultar_ia: {str(e)}")
-        return "Hubo un error técnico. Por favor, intentá de nuevo en unos minutos."
+        print(f"❌ ERROR CRÍTICO: {str(e)}")
+        return "Hubo un error técnico. Por favor, intentá de nuevo."
 
 def obtener_o_crear_conversacion(phone_number, texto_usuario):
     conn = get_db_connection()
