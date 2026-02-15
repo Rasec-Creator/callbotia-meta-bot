@@ -79,6 +79,40 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
         print(f"❌ ERROR en agendar_reunion: {str(e)}")
         return f"Error al agendar: {e}"
     
+def agendar_reunion(fecha_iso, nombre_cliente, telefono):
+    print(f"📅 Intentando agendar: {nombre_cliente} ({telefono}) para el {fecha_iso}")
+    try:
+        if not os.path.exists('google_key.json'):
+            print("❌ ERROR: No se encontró el archivo google_key.json")
+            return "Error interno: Falta configuración de Google."
+
+        # ARREGLO GOOGLE: Usamos el método correcto para archivos locales
+        creds = service_account.Credentials.from_service_account_file(
+            'google_key.json', scopes=SCOPES)
+        service = build('calendar', 'v3', credentials=creds)
+
+        evento = {
+            'summary': f'Reunión CallBotIA: {nombre_cliente}',
+            'description': f'Consulta técnica de lead de WhatsApp. Tel: {telefono}',
+            'start': {'dateTime': fecha_iso, 'timeZone': 'America/Argentina/Buenos_Aires'},
+            'end': {
+                'dateTime': (datetime.datetime.fromisoformat(fecha_iso) + datetime.timedelta(minutes=30)).isoformat(),
+                'timeZone': 'America/Argentina/Buenos_Aires'
+            },
+        }
+
+        print("🚀 Enviando petición a Google Calendar API...")
+        # Asegurate de cambiar 'tu_email@gmail.com' por tu mail real
+        evento_creado = service.events().insert(calendarId='tu_email@gmail.com', body=evento).execute()
+        
+        url_reunion = evento_creado.get('htmlLink')
+        print(f"✅ ¡Éxito! Reunión creada: {url_reunion}")
+        return f"Reunión agendada con éxito: {url_reunion}"
+
+    except Exception as e:
+        print(f"❌ ERROR en agendar_reunion: {str(e)}")
+        return f"Error al agendar: {e}"
+
 def consultar_ia(texto_usuario, conversation_id, phone_number):
     print(f"🤖 Consultando a Kat-IA para el usuario {phone_number}...")
     try:
@@ -89,53 +123,45 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
             input=texto_usuario 
         )
         
-        # Iteramos sobre la salida (output) del objeto Response
         for item in response.output:
-            # IMPORTANTE: Verificamos si es una llamada a función (ResponseFunctionToolCall)
-            if hasattr(item, 'type') and item.type == 'function_call':
-                call_id = item.id # El ID que espera la API para cerrar el ciclo
-                function_name = item.name
+            # Detectamos la llamada a la función
+            if item.type == 'function_call':
+                call_id = item.id
+                args = item.arguments
+                if isinstance(args, str): args = json.loads(args)
                 
-                if function_name == 'agendar_reunion':
-                    # Cargamos los argumentos (vienen como dict o string)
-                    args = item.arguments
-                    if isinstance(args, str): args = json.loads(args)
-                    
-                    print(f"📞 Kat-IA activó {function_name} (ID: {call_id})")
-                    
-                    # Ejecutamos tu lógica de Google Calendar
-                    resultado_proceso = agendar_reunion(
-                        fecha_iso=args['fecha_hora'], 
-                        nombre_cliente=args['nombre_cliente'],
-                        telefono=phone_number
-                    )
-                    
-                    # SEGUNDA VUELTA: Enviamos el resultado para confirmar al usuario
-                    print("🔄 Cerrando ciclo con OpenAI...")
-                    final_response = client.responses.create(
-                        model="gpt-4o-mini",
-                        conversation=conversation_id,
-                        input=[{
-                            "type": "tool_output",
-                            "call_id": call_id,
-                            "output": resultado_proceso
-                        }]
-                    )
-                    
-                    # Buscamos el mensaje final de Kat-IA
-                    for final_item in final_response.output:
-                        if hasattr(final_item, 'role') and final_item.role == 'assistant':
-                            return final_item.content[0].text
+                print(f"📞 Kat-IA activó {item.name} (ID: {call_id})")
+                
+                resultado_proceso = agendar_reunion(
+                    fecha_iso=args['fecha_hora'], 
+                    nombre_cliente=args['nombre_cliente'],
+                    telefono=phone_number
+                )
+                
+                # ARREGLO OPENAI: Usamos 'function_call_output' como pide el error
+                print("🔄 Enviando resultado a OpenAI...")
+                final_response = client.responses.create(
+                    model="gpt-4o-mini",
+                    conversation=conversation_id,
+                    input=[{
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": resultado_proceso
+                    }]
+                )
+                
+                for final_item in final_response.output:
+                    if final_item.type == 'message':
+                        return final_item.content[0].text
 
-            # Si es un mensaje de chat directo
-            if hasattr(item, 'role') and item.role == 'assistant':
+            if item.type == 'message':
                 return item.content[0].text
                 
-        return "Kat-IA procesó la solicitud pero no generó un mensaje de texto."
+        return "Kat-IA procesó la solicitud pero no generó texto."
 
     except Exception as e:
         print(f"❌ ERROR CRÍTICO en consultar_ia: {str(e)}")
-        return "Hubo un pequeño error técnico. Por favor, intentá de nuevo."
+        return "Hubo un error técnico. Por favor, intenta de nuevo."
 
 def obtener_o_crear_conversacion(phone_number, texto_usuario):
     conn = get_db_connection()
