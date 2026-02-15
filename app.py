@@ -78,7 +78,6 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
     except Exception as e:
         print(f"❌ ERROR en agendar_reunion: {str(e)}")
         return f"Error al agendar: {e}"
-
 def consultar_ia(texto_usuario, conversation_id, phone_number):
     try:
         response = client.responses.create(
@@ -88,43 +87,39 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
             input=texto_usuario 
         )
         
-        # Analizamos qué decidió hacer la IA
+        # Recorremos la salida para ver qué quiere hacer la IA
         for item in response.output:
-            # Caso 1: La IA decide que DEBE llamar a la función
+            # SI QUIERE LLAMAR A LA FUNCIÓN
             if item.type == 'call' and item.call.name == 'agendar_reunion':
                 args = item.call.arguments
                 if isinstance(args, str): args = json.loads(args)
                 
-                print(f"📞 ¡KAT-IA ACTIVÓ LA FUNCIÓN! Datos capturados: {args}")
+                print(f"📞 ¡KAT-IA ACTIVÓ LA FUNCIÓN! Datos: {args}")
                 
-                # Ejecutamos la lógica de Google Calendar
-                resultado = agendar_reunion(
+                resultado_funcion = agendar_reunion(
                     fecha_iso=args['fecha_hora'], 
                     nombre_cliente=args['nombre_cliente'],
                     telefono=phone_number
                 )
                 
-                print(f"📤 Enviando resultado de la función a la IA: {resultado}")
-                
-                # Segunda vuelta para que la IA confirme al usuario
+                # Le devolvemos el resultado a la IA para que ella confirme al usuario
+                print("🔄 Enviando resultado de vuelta a OpenAI...")
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
-                    input=resultado 
+                    input=resultado_funcion 
                 )
                 
-                respuesta_final = final_response.output[0].content[0].text
-                print(f"💬 Confirmación final de Kat-IA: {respuesta_final}")
-                return respuesta_final
+                # Buscamos la respuesta final de texto en la segunda vuelta
+                for final_item in final_response.output:
+                    if final_item.type == 'message':
+                        return final_item.content[0].text
 
-            # Caso 2: La IA responde un mensaje común (chat)
-            if item.type == 'message' and item.role == 'assistant':
-                texto_respuesta = item.content[0].text
-                print(f"💬 Kat-IA respondió sin llamar a funciones: {texto_respuesta[:50]}...")
-                return texto_respuesta
+            # SI ES UN MENSAJE COMÚN (Dudas o falta de datos)
+            if item.type == 'message':
+                return item.content[0].text
                 
-        print("⚠️ Advertencia: La IA no devolvió ni mensaje ni llamada a función.")
-        return "Recibí una respuesta pero no contenía texto."
+        return "Kat-IA está procesando tu solicitud, pero no generó un mensaje de texto."
 
     except Exception as e:
         print(f"❌ ERROR CRÍTICO en consultar_ia: {str(e)}")
