@@ -79,40 +79,39 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
         print(f"❌ ERROR en agendar_reunion: {str(e)}")
         return f"Error al agendar: {e}"
     
-def agendar_reunion(fecha_iso, nombre_cliente, telefono):
-    print(f"📅 Intentando agendar: {nombre_cliente} ({telefono}) para el {fecha_iso}")
+def agendar_reunion(fecha_iso, nombre_cliente, telefono, invitados=None):
+    print(f"📅 Agendando para {nombre_cliente} con invitados: {invitados}")
     try:
-        if not os.path.exists('google_key.json'):
-            print("❌ ERROR: No se encontró el archivo google_key.json")
-            return "Error interno: Falta configuración de Google."
-
-        # ARREGLO GOOGLE: Usamos el método correcto para archivos locales
-        creds = service_account.Credentials.from_service_account_file(
-            'google_key.json', scopes=SCOPES)
+        creds = service_account.Credentials.from_service_account_file('google_key.json', scopes=SCOPES)
         service = build('calendar', 'v3', credentials=creds)
+
+        # Preparamos la lista de invitados para Google
+        attendees = []
+        if invitados:
+            attendees = [{"email": email.strip()} for email in invitados]
 
         evento = {
             'summary': f'Reunión CallBotIA: {nombre_cliente}',
-            'description': f'Consulta técnica de lead de WhatsApp. Tel: {telefono}',
+            'description': f'Lead de WhatsApp: {telefono}',
             'start': {'dateTime': fecha_iso, 'timeZone': 'America/Argentina/Buenos_Aires'},
             'end': {
                 'dateTime': (datetime.datetime.fromisoformat(fecha_iso) + datetime.timedelta(minutes=30)).isoformat(),
                 'timeZone': 'America/Argentina/Buenos_Aires'
             },
+            'attendees': attendees, # <--- Acá van los mails
         }
 
-        print("🚀 Enviando petición a Google Calendar API...")
-        # Asegurate de cambiar 'tu_email@gmail.com' por tu mail real
-        evento_creado = service.events().insert(calendarId='reuniones.callbotia@gmail.com', body=evento).execute()
+        # sendUpdates='all' hace que Google mande el mail de invitación de una
+        evento_creado = service.events().insert(
+            calendarId='reuniones.callbotia@gmail.com', 
+            body=evento,
+            sendUpdates='all' 
+        ).execute()
         
-        url_reunion = evento_creado.get('htmlLink')
-        print(f"✅ ¡Éxito! Reunión creada: {url_reunion}")
-        return f"Reunión agendada con éxito: {url_reunion}"
-
+        return f"Reunión agendada con éxito: {evento_creado.get('htmlLink')}"
     except Exception as e:
-        print(f"❌ ERROR en agendar_reunion: {str(e)}")
         return f"Error al agendar: {e}"
-
+    
 def consultar_ia(texto_usuario, conversation_id, phone_number):
     print(f"🤖 Consultando a Kat-IA para el usuario {phone_number}...")
     try:
@@ -130,17 +129,15 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
         for item in response.output:
             # 2. Si la IA pide usar la herramienta
             if item.type == 'function_call' and item.name == 'agendar_reunion':
-                call_id = item.call_id # Usamos call_id como dice la docu
                 args = json.loads(item.arguments) if isinstance(item.arguments, str) else item.arguments
-                
-                print(f"📞 Kat-IA pidió agendar (ID: {call_id})")
                 
                 resultado_proceso = agendar_reunion(
                     fecha_iso=args['fecha_hora'], 
                     nombre_cliente=args['nombre_cliente'],
-                    telefono=phone_number
+                    telefono=phone_number,
+                    invitados=args.get('invitados') # <--- Capturamos los mails si existen
                 )
-                
+                            
                 # 3. Segunda llamada: Enviamos el resultado siguiendo el esquema oficial
                 print("🔄 Enviando resultado a OpenAI...")
                 final_response = client.responses.create(
