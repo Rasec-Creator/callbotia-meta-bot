@@ -45,7 +45,7 @@ def consultar_ia(texto_usuario, conversation_id):
 
     except Exception as e:
         print(f"error con responses api: {e}")
-        return "Hubo un error en mi nuevo cerebro de Responses API."
+        return "Hubo un error en la comunicacion, por favor intente mas tarde."
 
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
