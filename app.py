@@ -130,6 +130,34 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
         print(f"❌ ERROR CRÍTICO en consultar_ia: {str(e)}")
         return "Hubo un error en la comunicación, por favor intente más tarde."
 
+
+def obtener_o_crear_conversacion(phone_number, texto_usuario):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=DictCursor)
+    
+    cur.execute("SELECT conversation_id FROM leads WHERE telefono = %s", (phone_number,))
+    result = cur.fetchone()
+    
+    if result and result['conversation_id']:
+        conv_id = result['conversation_id']
+        cur.execute('''
+            UPDATE leads SET ultimo_mensaje = %s, fecha_actualizacion = CURRENT_TIMESTAMP 
+            WHERE telefono = %s
+        ''', (texto_usuario, phone_number))
+    else:
+        # En la Responses API creamos una conversation
+        conv = client.conversations.create()
+        conv_id = conv.id
+        cur.execute('''
+            INSERT INTO leads (telefono, conversation_id, ultimo_mensaje) 
+            VALUES (%s, %s, %s)
+        ''', (phone_number, conv_id, texto_usuario))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    return conv_id
+
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
     body = request.get_json()
