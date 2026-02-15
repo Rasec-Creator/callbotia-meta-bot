@@ -82,7 +82,6 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
 def consultar_ia(texto_usuario, conversation_id, phone_number):
     print(f"🤖 Consultando a Kat-IA para el usuario {phone_number}...")
     try:
-        # Primera vuelta
         response = client.responses.create(
             model="gpt-4o-mini", 
             prompt={"id": PROMPT_ID},
@@ -90,51 +89,53 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
             input=texto_usuario 
         )
         
-        # LOG CRUCIAL: Ver qué nos devolvió OpenAI en crudo
-        print(f"📡 Respuesta cruda (Turno 1): {response}")
-
+        # Iteramos sobre la salida (output) del objeto Response
         for item in response.output:
-            if item.type == 'call' and item.call.name == 'agendar_reunion':
-                call_id = item.call.id
-                args = item.call.arguments
-                if isinstance(args, str): args = json.loads(args)
+            # IMPORTANTE: Verificamos si es una llamada a función (ResponseFunctionToolCall)
+            if hasattr(item, 'type') and item.type == 'function_call':
+                call_id = item.id # El ID que espera la API para cerrar el ciclo
+                function_name = item.name
                 
-                print(f"📞 Kat-IA quiere llamar a función. ID: {call_id}, Args: {args}")
-                
-                resultado_proceso = agendar_reunion(
-                    fecha_iso=args['fecha_hora'], 
-                    nombre_cliente=args['nombre_cliente'],
-                    telefono=phone_number
-                )
-                
-                print(f"🔄 Enviando resultado a OpenAI: {resultado_proceso}")
-                
-                # Segunda vuelta
-                final_response = client.responses.create(
-                    model="gpt-4o-mini",
-                    conversation=conversation_id,
-                    input=[{
-                        "type": "tool_output",
-                        "call_id": call_id,
-                        "output": resultado_proceso
-                    }]
-                )
-                
-                # LOG CRUCIAL: Ver la confirmación final de OpenAI
-                print(f"📡 Respuesta cruda (Turno 2): {final_response}")
+                if function_name == 'agendar_reunion':
+                    # Cargamos los argumentos (vienen como dict o string)
+                    args = item.arguments
+                    if isinstance(args, str): args = json.loads(args)
+                    
+                    print(f"📞 Kat-IA activó {function_name} (ID: {call_id})")
+                    
+                    # Ejecutamos tu lógica de Google Calendar
+                    resultado_proceso = agendar_reunion(
+                        fecha_iso=args['fecha_hora'], 
+                        nombre_cliente=args['nombre_cliente'],
+                        telefono=phone_number
+                    )
+                    
+                    # SEGUNDA VUELTA: Enviamos el resultado para confirmar al usuario
+                    print("🔄 Cerrando ciclo con OpenAI...")
+                    final_response = client.responses.create(
+                        model="gpt-4o-mini",
+                        conversation=conversation_id,
+                        input=[{
+                            "type": "tool_output",
+                            "call_id": call_id,
+                            "output": resultado_proceso
+                        }]
+                    )
+                    
+                    # Buscamos el mensaje final de Kat-IA
+                    for final_item in final_response.output:
+                        if hasattr(final_item, 'role') and final_item.role == 'assistant':
+                            return final_item.content[0].text
 
-                for final_item in final_response.output:
-                    if final_item.type == 'message':
-                        return final_item.content[0].text
-
-            if item.type == 'message':
+            # Si es un mensaje de chat directo
+            if hasattr(item, 'role') and item.role == 'assistant':
                 return item.content[0].text
                 
-        return "Kat-IA completó la tarea pero no generó un mensaje."
+        return "Kat-IA procesó la solicitud pero no generó un mensaje de texto."
 
     except Exception as e:
         print(f"❌ ERROR CRÍTICO en consultar_ia: {str(e)}")
-        return "Hubo un error técnico. Por favor, intenta decir 'Hola' para reiniciar."
+        return "Hubo un pequeño error técnico. Por favor, intentá de nuevo."
 
 def obtener_o_crear_conversacion(phone_number, texto_usuario):
     conn = get_db_connection()
