@@ -78,8 +78,11 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
     except Exception as e:
         print(f"❌ ERROR en agendar_reunion: {str(e)}")
         return f"Error al agendar: {e}"
+    
 def consultar_ia(texto_usuario, conversation_id, phone_number):
+    print(f"🤖 Consultando a Kat-IA para el usuario {phone_number}...")
     try:
+        # Primera vuelta: La IA recibe el mensaje del usuario
         response = client.responses.create(
             model="gpt-4o-mini", 
             prompt={"id": PROMPT_ID},
@@ -87,44 +90,46 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
             input=texto_usuario 
         )
         
-        # Recorremos la salida para ver qué quiere hacer la IA
         for item in response.output:
-            # SI QUIERE LLAMAR A LA FUNCIÓN
+            # Si la IA quiere ejecutar la función
             if item.type == 'call' and item.call.name == 'agendar_reunion':
-                args = item.call.arguments
-                if isinstance(args, str): args = json.loads(args)
+                call_id = item.call.id # Necesitamos este ID
+                args = json.loads(item.call.arguments) if isinstance(item.call.arguments, str) else item.call.arguments
                 
-                print(f"📞 ¡KAT-IA ACTIVÓ LA FUNCIÓN! Datos: {args}")
+                print(f"📞 Ejecutando agendar_reunion (ID: {call_id})...")
                 
-                resultado_funcion = agendar_reunion(
+                resultado_proceso = agendar_reunion(
                     fecha_iso=args['fecha_hora'], 
                     nombre_cliente=args['nombre_cliente'],
                     telefono=phone_number
                 )
                 
-                # Le devolvemos el resultado a la IA para que ella confirme al usuario
-                print("🔄 Enviando resultado de vuelta a OpenAI...")
+                # SEGUNDA VUELTA: Crucial para la Responses API
+                # Le pasamos el resultado como una herramienta completada
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
-                    input=resultado_funcion 
+                    input={
+                        "type": "tool_output",
+                        "call_id": call_id,
+                        "output": resultado_proceso
+                    }
                 )
                 
-                # Buscamos la respuesta final de texto en la segunda vuelta
+                # Buscamos la respuesta de texto final para el usuario
                 for final_item in final_response.output:
                     if final_item.type == 'message':
                         return final_item.content[0].text
 
-            # SI ES UN MENSAJE COMÚN (Dudas o falta de datos)
+            # Si es un mensaje directo (sin función)
             if item.type == 'message':
                 return item.content[0].text
                 
-        return "Kat-IA está procesando tu solicitud, pero no generó un mensaje de texto."
+        return "Kat-IA no pudo generar una respuesta coherente."
 
     except Exception as e:
         print(f"❌ ERROR CRÍTICO en consultar_ia: {str(e)}")
-        return "Hubo un error en la comunicación, por favor intente más tarde."
-
+        return "Hubo un error técnico. Por favor, intenta de nuevo en unos minutos."
 
 def obtener_o_crear_conversacion(phone_number, texto_usuario):
     conn = get_db_connection()
