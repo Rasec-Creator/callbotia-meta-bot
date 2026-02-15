@@ -127,8 +127,7 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
             # Detectamos la llamada a la función
             if item.type == 'function_call':
                 call_id = item.id
-                args = item.arguments
-                if isinstance(args, str): args = json.loads(args)
+                args = json.loads(item.arguments) if isinstance(item.arguments, str) else item.arguments
                 
                 print(f"📞 Kat-IA activó {item.name} (ID: {call_id})")
                 
@@ -138,22 +137,24 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
                     telefono=phone_number
                 )
                 
-                # ARREGLO OPENAI: Usamos 'function_call_output' como pide el error
-                print("🔄 Enviando resultado a OpenAI...")
+                # Turno 2: Enviamos el resultado como UN ARRAY de UN SOLO OBJETO
+                print(f"🔄 Cerrando ciclo con OpenAI...")
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
-                    input={
+                    input=[{
                         "type": "function_call_output",
                         "call_id": call_id,
                         "output": resultado_proceso
-                    }
+                    }]
                 )
                 
+                # Buscamos el mensaje final de texto para mandarlo por WhatsApp
                 for final_item in final_response.output:
                     if final_item.type == 'message':
                         return final_item.content[0].text
 
+            # Si la IA respondió directamente sin llamar a funciones
             if item.type == 'message':
                 return item.content[0].text
                 
@@ -161,7 +162,7 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
 
     except Exception as e:
         print(f"❌ ERROR CRÍTICO en consultar_ia: {str(e)}")
-        return "Hubo un error técnico. Por favor, intenta de nuevo."
+        return "Hubo un error técnico. Por favor, intentá de nuevo en unos minutos."
 
 def obtener_o_crear_conversacion(phone_number, texto_usuario):
     conn = get_db_connection()
