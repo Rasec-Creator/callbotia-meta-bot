@@ -121,6 +121,39 @@ def enviar_mensaje(to, text):
     print(f"estado envio: {response.status_code}")
     return response.json()
 
+@app.route('/dashboard')
+def ver_dashboard():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=DictCursor)
+        # Traemos todos los leads ordenados por la última vez que escribieron
+        cur.execute("SELECT id, telefono, ultimo_mensaje, fecha_actualizacion FROM leads ORDER BY fecha_actualizacion DESC")
+        leads = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        # Armamos un HTML ultra básico para que se vea ordenado
+        html = """
+        <html>
+        <head><title>Dashboard CallBotIA</title></head>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2>Leads de CallBotIA - Kat-IA</h2>
+            <table border="1" style="width:100%; border-collapse: collapse;">
+                <tr style="background-color: #f2f2f2;">
+                    <th>ID</th>
+                    <th>Teléfono</th>
+                    <th>Último Mensaje</th>
+                    <th>Fecha</th>
+                </tr>
+        """
+        for lead in leads:
+            html += f"<tr><td>{lead[0]}</td><td>{lead[1]}</td><td>{lead[2]}</td><td>{lead[3]}</td></tr>"
+        
+        html += "</table></body></html>"
+        return html
+    except Exception as e:
+        return f"<h3>Error al cargar el dashboard:</h3><p>{e}</p>"
+
 if __name__ == '__main__':
     init_db() # Inicializamos la tabla
     port = int(os.environ.get("PORT", 8000))
