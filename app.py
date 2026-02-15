@@ -142,11 +142,7 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
-                    input=[{
-                        "type": "function_call_outputs",
-                        "call_id": call_id,
-                        "output": resultado_proceso
-                    }]
+                    input=f"{resultado_proceso}. Confirmale al usuario que ya está listo."
                 )
                 
                 # Buscamos el mensaje final de texto para mandarlo por WhatsApp
