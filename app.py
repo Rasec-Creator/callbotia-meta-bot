@@ -115,7 +115,6 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono, invitados=None):
 def consultar_ia(texto_usuario, conversation_id, phone_number):
     print(f"🤖 Consultando a Kat-IA para el usuario {phone_number}...")
     try:
-        # 1. Primera llamada a la Responses API
         response = client.responses.create(
             model="gpt-4o-mini", 
             prompt={"id": PROMPT_ID},
@@ -123,39 +122,36 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
             input=texto_usuario 
         )
         
-        # Guardamos la salida inicial para mantener el historial
-        hilo_mensajes = response.output
-
         for item in response.output:
-            # 2. Si la IA pide usar la herramienta
             if item.type == 'function_call' and item.name == 'agendar_reunion':
+                # ACÁ ESTABA EL ERROR: Usamos el ID que viene en el item
+                id_llamada = item.id 
                 args = json.loads(item.arguments) if isinstance(item.arguments, str) else item.arguments
+                
+                print(f"📞 Kat-IA pidió agendar (ID: {id_llamada})")
                 
                 resultado_proceso = agendar_reunion(
                     fecha_iso=args['fecha_hora'], 
                     nombre_cliente=args['nombre_cliente'],
                     telefono=phone_number,
-                    invitados=args.get('invitados') # <--- Capturamos los mails si existen
+                    invitados=args.get('invitados') # opcional
                 )
-                            
-                # 3. Segunda llamada: Enviamos el resultado siguiendo el esquema oficial
+                
                 print("🔄 Enviando resultado a OpenAI...")
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
                     input=[{
                         "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": json.dumps({"resultado": resultado_proceso}) # Lo mandamos como JSON string
+                        "call_id": id_llamada, # Usamos la variable local corregida
+                        "output": json.dumps({"resultado": resultado_proceso})
                     }]
                 )
                 
-                # 4. Buscamos la respuesta final de texto
                 for final_item in final_response.output:
                     if final_item.type == 'message':
                         return final_item.content[0].text
 
-            # Si es un mensaje directo
             if item.type == 'message':
                 return item.content[0].text
                 
