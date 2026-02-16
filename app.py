@@ -69,7 +69,7 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
         }
 
         print("🚀 Enviando petición a Google Calendar API...")
-        evento_creado = service.events().insert(calendarId='reuniones.callbotia@gmail.com', body=evento).execute()
+        evento_creado = service.events().insert(calendarId='primary', body=evento, sendUpdates='all').execute()
         
         url_reunion = evento_creado.get('htmlLink')
         print(f"✅ ¡Éxito! Reunión creada: {url_reunion}")
