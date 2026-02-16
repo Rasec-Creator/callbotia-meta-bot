@@ -123,12 +123,12 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
         )
         
         for item in response.output:
+
             if item.type == 'function_call' and item.name == 'agendar_reunion':
-                # ACÁ ESTABA EL ERROR: Usamos el ID que viene en el item
-                id_llamada = item.id 
+                call_id = item.call_id
                 args = json.loads(item.arguments) if isinstance(item.arguments, str) else item.arguments
                 
-                print(f"📞 Kat-IA pidió agendar (ID: {id_llamada})")
+                print(f"📞 Kat-IA pidió agendar (ID: {call_id})")
                 
                 resultado_proceso = agendar_reunion(
                     fecha_iso=args['fecha_hora'], 
@@ -143,7 +143,7 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
                     conversation=conversation_id,
                     input=[{
                         "type": "function_call_output",
-                        "call_id": id_llamada, # Usamos la variable local corregida
+                        "call_id": call_id, # Usamos la variable local corregida
                         "output": json.dumps({"resultado": resultado_proceso})
                     }]
                 )
