@@ -61,23 +61,33 @@ def ejecutar_herramienta(item, phone):
         return {"status": "ok"}, None
         
     elif nombre == 'agendar_reunion':
-            res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-            
-            if res.get("status") == "success":
-                try:
-                    dt = datetime.datetime.fromisoformat(res['inicio'])
-                    fecha_formateada = dt.strftime("%d/%m/%Y a las %H:%M hs")
-                except:
-                    fecha_formateada = res['inicio']
-                msg_p_usuario = (
-                    f"✅ ¡Reunión confirmada, {res['cliente']}!\n\n"
-                    f"📅 *Fecha:* {fecha_formateada}\n"
-                    f"🔗 *Link de la reunión:* {res['meet_link']}\n\n"
-                    f"¡Te espero ahí para potenciar tu proyecto! 🚀"
-                )
-                return res, msg_p_usuario
-            else:
-                return res, f"Che, hubo un problema al agendar: {res.get('message')}"
+        res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
+        
+        if res.get("status") == "success":
+            try:
+                # procesamos inicio y fin
+                dt_inicio = datetime.datetime.fromisoformat(res['inicio'])
+                dt_fin = datetime.datetime.fromisoformat(res['fin'])
+                
+                # formateamos: dia/mes y el rango de horas
+                fecha_dia = dt_inicio.strftime("%d/%m/%Y")
+                hora_inicio = dt_inicio.strftime("%H:%M")
+                hora_fin = dt_fin.strftime("%H:%M")
+                
+                rango_horario = f"{fecha_dia} de {hora_inicio} a {hora_fin} hs"
+            except Exception as e:
+                print(f"Error formateando fecha: {e}")
+                rango_horario = res['inicio']
+
+            msg_p_usuario = (
+                f"✅ ¡Reunión confirmada, {res['cliente']}!\n\n"
+                f"📅 *Fecha:* {rango_horario}\n"
+                f"🔗 *Link de la reunión:* {res['meet_link']}\n\n"
+                f"¡Te espero ahí para potenciar tu proyecto! 🚀"
+            )
+            return res, msg_p_usuario
+        else:
+            return res, f"Hubo un problema al agendar: {res.get('message')}"
     
     return {"error": "función no encontrada"}, None
 
