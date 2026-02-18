@@ -157,9 +157,9 @@ def procesar_respuesta_ia(to, nombre_wa, texto, boton_id):
         else:
             c_id = create_or_update_conv(to, nombre_wa, texto, client)
             # contexto para botones
-            input_ia = texto
+            input_ia = texto+nombre_wa
             if boton_id == "btn_si":
-                input_ia = f"SISTEMA: {nombre_wa} acepto el Modo Botones. Ejecuta 'mostrar_menu_botones' para darle opciones."
+                input_ia = f"Usuario acepto el Modo Botones. Ejecuta 'mostrar_menu_botones' para darle opciones."
             # consulta a la IA y envio
             res_ia = consultar_ia(input_ia, c_id, to)
             if res_ia:
