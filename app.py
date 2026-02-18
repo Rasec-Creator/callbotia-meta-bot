@@ -24,7 +24,7 @@ def consultar_ia(texto, conv_id, phone):
         )
         
         for item in response.output:
-            # En la Responses API, el ID está en item.id
+            # Capturamos el ID de la llamada para el log
             current_id = getattr(item, 'id', None)
             
             if item.type == 'function_call':
@@ -32,31 +32,30 @@ def consultar_ia(texto, conv_id, phone):
                 
                 if item.name == 'mostrar_menu_botones':
                     print(f"🔘 Botones detectados. ID: {current_id}")
-                    # Mandamos los botones (ahora la función es a prueba de errores)
+                    # 1. Mandamos los botones a WhatsApp
                     enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
+                    print(f"✅ Botones enviados a {phone}. Terminando turno.")
                     
-                    # Cerramos ciclo para que OpenAI no tire Error 400 después
-                    client.responses.create(
-                        model="gpt-4o-mini", conversation=conv_id,
-                        input=[{"type": "function_call_output", "call_id": current_id, "output": "ok"}]
-                    )
+                    # 2. IMPORTANTE: No llamamos de nuevo a client.responses.create
+                    # Salimos directamente. La próxima vez que el usuario toque un botón,
+                    # se retomará la charla con el nuevo input.
                     return None
 
                 if item.name == 'agendar_reunion':
+                    print(f"📅 Agendando reunión. ID: {current_id}")
                     res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-                    client.responses.create(
-                        model="gpt-4o-mini", conversation=conv_id,
-                        input=[{"type": "function_call_output", "call_id": current_id, "output": json.dumps({"res": res})}]
-                    )
-                    return f"Confirmado: {res}"
+                    # En el caso de calendar, sí retornamos el texto para que el usuario lo vea
+                    return f"¡Listo! {res}"
 
             if item.type == 'message':
                 return item.content[0].text
 
-        return "Sin respuesta."
+        return None
     except Exception as e:
         print(f"❌ ERROR: {str(e)}")
-        return f"Error técnico: {e}"
+        # Si es un error de OpenAI por IDs, lo ignoramos y devolvemos None 
+        # para que no le llegue el 'Error técnico' al usuario
+        return None
     
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
