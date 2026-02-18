@@ -1,5 +1,7 @@
 import requests
 import os
+from dotenv import load_dotenv 
+load_dotenv()
 
 PHONE_ID = os.getenv("PHONE_ID")
 TOKEN = os.getenv("TOKEN")
@@ -48,7 +50,10 @@ def enviar_botones_bienvenida(to, nombre_usuario):
             }
         }
     }
-    requests.post(url, headers=headers, json=data)
+    try:
+        requests.post(url, headers=headers, json=data)
+    except Exception as e:
+        print(f"Error en la bienvenida: {e}")
 
 def enviar_botones_dinamicos(to, texto, lista_botones):
     url = f"https://graph.facebook.com/v18.0/{PHONE_ID}/messages"
@@ -82,7 +87,5 @@ def enviar_botones_dinamicos(to, texto, lista_botones):
             }
         }
     }
-    
-    print(f"📤 Enviando botones dinámicos a {to}...")
     response = requests.post(url, headers=headers, json=data)
     return response.json()

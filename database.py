@@ -11,10 +11,12 @@ def init_db():
     cur.execute('''
         CREATE TABLE IF NOT EXISTS leads (
             id SERIAL PRIMARY KEY,
+            nombre TEXT,
             telefono TEXT UNIQUE NOT NULL,
             conversation_id TEXT,
             ultimo_mensaje TEXT,
-            fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     ''')
     cur.execute('''
@@ -41,7 +43,7 @@ def check_if_processed(msg_id):
         cur.close()
         conn.close()
 
-def obtener_o_crear_conv(phone_number, texto_usuario, client_openai):
+def create_or_update_conv(phone_number, nombre, texto_usuario, client_openai):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=DictCursor)
     cur.execute("SELECT conversation_id FROM leads WHERE telefono = %s", (phone_number,))
@@ -53,7 +55,7 @@ def obtener_o_crear_conv(phone_number, texto_usuario, client_openai):
     else:
         conv = client_openai.conversations.create()
         conv_id = conv.id
-        cur.execute("INSERT INTO leads (telefono, conversation_id, ultimo_mensaje) VALUES (%s, %s, %s)", (phone_number, conv_id, texto_usuario))
+        cur.execute("INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje) VALUES (%s, %s, %s, %s)", (phone_number, nombre, conv_id, texto_usuario))
     
     conn.commit()
     cur.close()

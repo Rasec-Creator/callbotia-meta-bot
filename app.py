@@ -2,8 +2,9 @@ import os, json
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from openai import OpenAI
+import threading
 from psycopg2.extras import DictCursor
-from database import init_db, get_db_connection, check_if_processed, obtener_o_crear_conv, if_primer_contacto
+from database import init_db, get_db_connection, check_if_processed, create_or_update_conv, if_primer_contacto
 from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida, enviar_botones_dinamicos
 from services.calendar_service import agendar_reunion
 
@@ -14,7 +15,7 @@ PROMPT_ID = os.getenv("PROMPT_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 def consultar_ia(texto, conv_id, phone):
-    print(f"\n--- 🧠 DEBUG IA ---")
+
     try:
         response = client.responses.create(
             model="gpt-4o-mini", 
@@ -22,102 +23,124 @@ def consultar_ia(texto, conv_id, phone):
             conversation=conv_id, 
             input=texto 
         )
-        
         outputs_pendientes = []
         texto_final = None
 
         for item in response.output:
-            # Capturamos el ID exacto que mandó OpenAI
-            c_id = getattr(item, 'id', None)
+            c_id = getattr(item, 'call_id', None)
 
             if item.type == 'function_call':
-                args = json.loads(item.arguments)
-                print(f"🔍 Tool detectada: {item.name} | ID: {c_id}")
-
-                if item.name == 'mostrar_menu_botones':
-                    enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
-                    
-                    # Agregamos el output usando el call_id exacto
-                    outputs_pendientes.append({
-                        "type": "function_call_output",
-                        "call_id": c_id,
-                        "output": "ok"
-                    })
+                resultado_tool, msg_usuario = ejecutar_herramienta(item, phone)
                 
-                elif item.name == 'agendar_reunion':
-                    res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-                    outputs_pendientes.append({
-                        "type": "function_call_output",
-                        "call_id": c_id,
-                        "output": json.dumps({"resultado": res})
-                    })
-                    texto_final = f"¡Listo! {res}"
-
+                outputs_pendientes.append({
+                    "type": "function_call_output",
+                    "call_id": c_id,
+                    "output": json.dumps(resultado_tool)
+                })
+                # si la herramienta trajo mensaje
+                if msg_usuario:
+                    texto_final = msg_usuario
             elif item.type == 'message':
                 texto_final = item.content[0].text
-
-        # 🚀 CIERRE DEL CICLO: Solo si hay tareas pendientes
+        # cierre de ciclo
         if outputs_pendientes:
-            print(f"📤 Intentando cerrar {len(outputs_pendientes)} tareas...")
-            try:
-                client.responses.create(
-                    model="gpt-4o-mini",
-                    conversation=conv_id,
-                    input=outputs_pendientes
-                )
-                print("✅ Sincronización exitosa.")
-            except Exception as e_sync:
-                # Si falla acá, es porque el ID expiró o se duplicó, pero los botones YA SE ENVIARON.
-                print(f"⚠️ Error de sincronización (ignorable): {e_sync}")
-
+            sincronizar_ia(conv_id, outputs_pendientes)
         return texto_final
-
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO IA: {str(e)}")
+        print(f"❌ ERROR IA: {str(e)}")
         return None
+    
+"""Maneja cada funcion por separado."""
+def ejecutar_herramienta(item, phone):
+    args = json.loads(item.arguments)
+    nombre = item.name
+    
+    if nombre == 'mostrar_menu_botones':
+        enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
+        return {"status": "ok"}, None
+        
+    elif nombre == 'agendar_reunion':
+        res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
+        return {"resultado": res}, f"¡Listo! {res}"
+    
+    return {"error": "función no encontrada"}, None
+
+"""Envia los outputs para cerrar la funcion."""
+def sincronizar_ia(conv_id, outputs):
+    try:
+        client.responses.create(
+            model="gpt-4o-mini",
+            conversation=conv_id,
+            input=outputs
+        )
+    except Exception as e:
+        print(f"Error de sincronización: {e}")
 
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
     body = request.get_json()
     value = body.get('entry', [{}])[0].get('changes', [{}])[0].get('value', {})
     
-    if 'messages' in value:
-        mensaje = value['messages'][0]
-        msg_id = mensaje.get('id') 
-        contacto = value.get('contacts', [{}])[0]
-        nombre_wa = contacto.get('profile', {}).get('name', 'Usuario') # 'Usuario' por si no tiene nombre
+    if 'messages' not in value:
+        return jsonify({"status": "no messages"}), 200
 
-        if check_if_processed(msg_id):
-            return jsonify({"status": "skipped"}), 200
+    mensaje = value['messages'][0]
+    msg_id = mensaje.get('id')
+    
+    # filtro de duplicados
+    if check_if_processed(msg_id):
+        return jsonify({"status": "skipped"}), 200
 
-        numero = mensaje['from']
-        to = "54" + numero[3:] if numero.startswith("549") else numero
-        
-        texto = ""
-        if mensaje.get('type') == 'text':
-            texto = mensaje['text']['body']
-        elif mensaje.get('type') == 'interactive':
-            texto = mensaje['interactive']['button_reply']['title']
+    # extraccion de datos
+    contacto = value.get('contacts', [{}])[0]
+    nombre_wa = contacto.get('profile', {}).get('name', 'Usuario')
+    numero = mensaje['from']
+    to = "54" + numero[3:] if numero.startswith("549") else numero
+    
+    texto, boton_id = extraer_contenido(mensaje)
 
-        if texto:
-            if if_primer_contacto(to):
-                c_id = obtener_o_crear_conv(to, texto, client)
-                enviar_botones_bienvenida(to, nombre_wa)
-            else:
-                c_id = obtener_o_crear_conv(to, texto, client)
+    if texto:
+        # procesamiento en segundo plano (responde 200 a meta evita reintentos)
+        thread = threading.Thread(
+            target=procesar_respuesta_ia, 
+            args=(to, nombre_wa, texto, boton_id)
+        )
+        thread.start()
+
+    # respuesta a meta
+    return jsonify({"status": "received"}), 200
+
+"""Extrae el texto o el ID del boton del mensaje"""
+def extraer_contenido(mensaje):
+    texto = ""
+    boton_id = None
+    if mensaje.get('type') == 'text':
+        texto = mensaje['text']['body']
+    elif mensaje.get('type') == 'interactive':
+        texto = mensaje['interactive']['button_reply']['title']
+        boton_id = mensaje['interactive']['button_reply']['id']
+    return texto, boton_id
+
+"""Logica de negocio"""
+def procesar_respuesta_ia(to, nombre_wa, texto, boton_id):
+    try:
+        # manejo de base de datos y conver
+        if if_primer_contacto(to):
+            c_id = create_or_update_conv(to, nombre_wa, texto, client)
+            enviar_botones_bienvenida(to, nombre_wa)
+        else:
+            c_id = create_or_update_conv(to, nombre_wa, texto, client)
+            # contexto para botones
+            input_ia = texto
+            if boton_id == "btn_si":
+                input_ia = "SISTEMA: El usuario acepto el Modo Botones. Ejecuta 'mostrar_menu_botones' para darle opciones."
+            # consulta a la IA y envio
+            res_ia = consultar_ia(input_ia, c_id, to)
+            if res_ia:
+                enviar_mensaje(to, res_ia)
                 
-                # Si el usuario clickeó el botón "SI", le damos contexto a la IA
-                input_ia = texto
-                if mensaje.get('type') == 'interactive':
-                    boton_id = mensaje['interactive']['button_reply']['id']
-                    if boton_id == "btn_si":
-                        input_ia = "SISTEMA: El usuario aceptó el Modo Botones. Ejecuta 'mostrar_menu_botones' para darle opciones."
-                
-                res_ia = consultar_ia(input_ia, c_id, to)
-                if res_ia:
-                    enviar_mensaje(to, res_ia)
-                
-    return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        print(f"Error en procesar_respuesta_ia: {e}")
 
 @app.route('/webhook', methods=['GET'])
 def webhook_verificar():
@@ -130,7 +153,7 @@ def ver_dashboard():
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=DictCursor)
-        cur.execute("SELECT id, telefono, ultimo_mensaje, fecha_actualizacion, conversation_id FROM leads ORDER BY fecha_actualizacion DESC")
+        cur.execute("SELECT id, telefono,nombre, ultimo_mensaje, fecha_actualizacion, fecha_creacion, conversation_id FROM leads ORDER BY fecha_actualizacion DESC")
         leads = cur.fetchall()
         cur.close()
         conn.close()
@@ -155,8 +178,10 @@ def ver_dashboard():
                 <tr>
                     <th>ID</th>
                     <th>Teléfono</th>
+                    <th>Nombre</th>
                     <th>Último Mensaje</th>
-                    <th>Fecha</th>
+                    <th>Fecha Act</th>
+                    <th>Fecha Creacion</th>
                     <th>Acciones</th>
                 </tr>
         """
@@ -165,8 +190,10 @@ def ver_dashboard():
                 <tr>
                     <td>{lead['id']}</td>
                     <td>{lead['telefono']}</td>
+                    <td>{lead['nombre']}</td>
                     <td>{lead['ultimo_mensaje']}</td>
                     <td>{lead['fecha_actualizacion']}</td>
+                    <td>{lead['fecha_creacion']}</td>
                     <td>
                         <a href="/eliminar/{lead['id']}" class="btn-del" onclick="return confirm('¿Seguro querés borrar este lead y resetear su chat?')">Eliminar</a>
                     </td>
