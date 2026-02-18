@@ -34,18 +34,25 @@ def consultar_ia(texto, conv_id, phone):
                     print(f"🔘 Botones detectados. ID: {current_id}")
                     # 1. Mandamos los botones a WhatsApp
                     enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
-                    print(f"✅ Botones enviados a {phone}. Terminando turno.")
                     
-                    # 2. IMPORTANTE: No llamamos de nuevo a client.responses.create
-                    # Salimos directamente. La próxima vez que el usuario toque un botón,
-                    # se retomará la charla con el nuevo input.
+                    # 2. CERRAMOS EL CICLO (Obligatorio para que no tire Error 400 después)
+                    # Pero usamos un 'return' para cortar nosotros el flujo de Flask
+                    try:
+                        client.responses.create(
+                            model="gpt-4o-mini", 
+                            conversation=conv_id,
+                            input=[{
+                                "type": "function_call_output", 
+                                "call_id": current_id, 
+                                "output": "ok"
+                            }]
+                        )
+                        print(f"✅ Ciclo de OpenAI cerrado para {current_id}")
+                    except Exception as e_close:
+                        print(f"Error al cerrar ciclo (ignorable): {e_close}")
+                    
+                    # 3. Cortamos acá. No devolvemos nada para que no se mande texto extra
                     return None
-
-                if item.name == 'agendar_reunion':
-                    print(f"📅 Agendando reunión. ID: {current_id}")
-                    res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-                    # En el caso de calendar, sí retornamos el texto para que el usuario lo vea
-                    return f"¡Listo! {res}"
 
             if item.type == 'message':
                 return item.content[0].text
@@ -95,7 +102,8 @@ def recibir_mensajes():
             else:
                 c_id = obtener_o_crear_conv(to, texto, client)
                 res_ia = consultar_ia(texto, c_id, to)
-                enviar_mensaje(to, res_ia)
+                if res_ia: # Si es None (porque fueron botones), no mandamos nada extra
+                    enviar_mensaje(to, res_ia)
         
         
                 
