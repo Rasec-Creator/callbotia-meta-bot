@@ -14,7 +14,7 @@ PROMPT_ID = os.getenv("PROMPT_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 def consultar_ia(texto, conv_id, phone):
-    print(f"📩 Input recibido: '{texto}'")
+    print(f"\n--- 🧠 DEBUG IA ---")
     try:
         response = client.responses.create(
             model="gpt-4o-mini", 
@@ -22,68 +22,59 @@ def consultar_ia(texto, conv_id, phone):
             conversation=conv_id, 
             input=texto 
         )
-
+        
         for item in response.output:
-            print(f"🔍 Item tipo: {item.type}")
+            # Intentamos sacar el ID de forma segura
+            item_id = getattr(item, 'id', None)
+            print(f"🔍 Procesando item tipo: {item.type} | ID detectado: {item_id}")
 
-            # CASO 1: Agendar Calendario
-            if item.type == 'function_call' and item.name == 'agendar_reunion':
-                call_id = item.id 
-                args = json.loads(item.arguments)
-                print(f"📞 TOOL CALL: agendar_reunion | ID: {call_id} | Args: {args}")
-                
-                res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-                print(f"✅ Resultado Calendar: {res}")
-                
-                print(f"🔄 Enviando output de función a OpenAI...")
-                client.responses.create(
-                    model="gpt-4o-mini", 
-                    conversation=conv_id,
-                    input=[{
-                        "type": "function_call_output", 
-                        "call_id": call_id, 
-                        "output": json.dumps({"resultado": res})
-                    }]
-                )
-                return f"Confirmado: {res}"
-
-            # CASO 2: Botones Dinámicos
+            # CASO: Botones Dinámicos
             if item.type == 'function_call' and item.name == 'mostrar_menu_botones':
-                call_id_actual = item.id # Este es el ID que OpenAI espera que cierres
                 args = json.loads(item.arguments)
+                print(f"🔘 Ejecutando botones: {args}")
                 
-                print(f"🔘 Procesando botones para ID: {call_id_actual}")
                 enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
                 
-                # IMPORTANTE: El output debe ser un string simple si no esperás respuesta
-                output_text = "Botones mostrados correctamente."
-                
-                print(f"🔄 Intentando cerrar el ciclo para {call_id_actual}...")
-                try:
+                # Cierre de ciclo obligatorio
+                if item_id:
                     client.responses.create(
                         model="gpt-4o-mini", 
                         conversation=conv_id,
                         input=[{
                             "type": "function_call_output", 
-                            "call_id": call_id_actual, # Usamos la variable local para estar seguros
-                            "output": output_text
+                            "call_id": item_id, 
+                            "output": "ok"
                         }]
                     )
-                    print(f"✅ Ciclo cerrado para {call_id_actual}")
-                except Exception as e_inner:
-                    print(f"⚠️ Error al cerrar ciclo: {e_inner}")
-                
-                return None
+                return None 
 
-        print(f"La IA no generó una acción ni mensaje válido.")
-        return "Lum-IA fuera de servicio."
+            # CASO: Agendar Reunión
+            if item.type == 'function_call' and item.name == 'agendar_reunion':
+                args = json.loads(item.arguments)
+                res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
+                
+                if item_id:
+                    client.responses.create(
+                        model="gpt-4o-mini", 
+                        conversation=conv_id,
+                        input=[{
+                            "type": "function_call_output", 
+                            "call_id": item_id, 
+                            "output": json.dumps({"resultado": res})
+                        }]
+                    )
+                return f"Confirmado: {res}"
+
+            if item.type == 'message':
+                return item.content[0].text
+
+        return "Lum-IA sin respuesta clara."
 
     except Exception as e:
-        print(f" ERROR CRÍTICO EN CONSULTAR_IA: {str(e)}")
+        print(f"❌ ERROR REAL: {str(e)}")
+        # Si el error sigue siendo 'id', es que el objeto 'item' tiene otra estructura
         return f"Error técnico: {e}"
-    finally:
-        print(f"--- 🧠 FIN CONSULTA IA ---\n")
-
+    
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
     body = request.get_json()
