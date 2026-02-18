@@ -49,36 +49,37 @@ def consultar_ia(texto, conv_id, phone):
 
             # CASO 2: Botones Dinámicos
             if item.type == 'function_call' and item.name == 'mostrar_menu_botones':
-                call_id = item.id
+                call_id_actual = item.id # Este es el ID que OpenAI espera que cierres
                 args = json.loads(item.arguments)
-                print(f"🔘 TOOL CALL: mostrar_menu_botones | ID: {call_id} | Args: {args}")
                 
+                print(f"🔘 Procesando botones para ID: {call_id_actual}")
                 enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
                 
-                print(f"🔄 Cerrando ciclo de botones en OpenAI...")
-                client.responses.create(
-                    model="gpt-4o-mini", 
-                    conversation=conv_id,
-                    input=[{
-                        "type": "function_call_output", 
-                        "call_id": call_id, 
-                        "output": "Botones mostrados exitosamente."
-                    }]
-                )
-                print(f"✨ Ciclo de botones completado.")
-                return None 
-
-            if item.type == 'message':
-                texto_final = item.content[0].text
-                print(f"💬 Mensaje final de la IA: {texto_final}")
-                return texto_final
+                # IMPORTANTE: El output debe ser un string simple si no esperás respuesta
+                output_text = "Botones mostrados correctamente."
+                
+                print(f"🔄 Intentando cerrar el ciclo para {call_id_actual}...")
+                try:
+                    client.responses.create(
+                        model="gpt-4o-mini", 
+                        conversation=conv_id,
+                        input=[{
+                            "type": "function_call_output", 
+                            "call_id": call_id_actual, # Usamos la variable local para estar seguros
+                            "output": output_text
+                        }]
+                    )
+                    print(f"✅ Ciclo cerrado para {call_id_actual}")
+                except Exception as e_inner:
+                    print(f"⚠️ Error al cerrar ciclo: {e_inner}")
+                
+                return None
 
         print(f"La IA no generó una acción ni mensaje válido.")
         return "Lum-IA fuera de servicio."
 
     except Exception as e:
         print(f" ERROR CRÍTICO EN CONSULTAR_IA: {str(e)}")
-        # Esto nos va a decir si el error es 'id', 'call_id' o un problema de JSON
         return f"Error técnico: {e}"
     finally:
         print(f"--- 🧠 FIN CONSULTA IA ---\n")
