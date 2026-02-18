@@ -35,7 +35,6 @@ def consultar_ia(texto, conv_id, phone):
                 print(f"🔍 Tool detectada: {item.name} | ID: {c_id}")
 
                 if item.name == 'mostrar_menu_botones':
-                    from services.whatsapp_service import enviar_botones_dinamicos
                     enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
                     
                     # Agregamos el output usando el call_id exacto
