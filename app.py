@@ -14,40 +14,75 @@ PROMPT_ID = os.getenv("PROMPT_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 def consultar_ia(texto, conv_id, phone):
+    print(f"📩 Input recibido: '{texto}'")
     try:
         response = client.responses.create(
-            model="gpt-4o-mini", prompt={"id": PROMPT_ID},
-            conversation=conv_id, input=texto 
+            model="gpt-4o-mini", 
+            prompt={"id": PROMPT_ID},
+            conversation=conv_id, 
+            input=texto 
         )
+
         for item in response.output:
+            print(f"🔍 Item tipo: {item.type}")
+
             # CASO 1: Agendar Calendario
             if item.type == 'function_call' and item.name == 'agendar_reunion':
+                call_id = item.id 
                 args = json.loads(item.arguments)
+                print(f"📞 TOOL CALL: agendar_reunion | ID: {call_id} | Args: {args}")
+                
                 res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-                # OJO: Siempre cerrar el ciclo de la función
+                print(f"✅ Resultado Calendar: {res}")
+                
+                print(f"🔄 Enviando output de función a OpenAI...")
                 client.responses.create(
-                    model="gpt-4o-mini", conversation=conv_id,
-                    input=[{"type": "function_call_output", "call_id": item.call_id, "output": json.dumps({"resultado": res})}]
+                    model="gpt-4o-mini", 
+                    conversation=conv_id,
+                    input=[{
+                        "type": "function_call_output", 
+                        "call_id": call_id, 
+                        "output": json.dumps({"resultado": res})
+                    }]
                 )
                 return f"Confirmado: {res}"
 
             # CASO 2: Botones Dinámicos
             if item.type == 'function_call' and item.name == 'mostrar_menu_botones':
+                call_id = item.id
                 args = json.loads(item.arguments)
+                print(f"🔘 TOOL CALL: mostrar_menu_botones | ID: {call_id} | Args: {args}")
+                
                 enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
-                # TAMBIÉN cerramos el ciclo acá para que la IA sepa que ya se mostraron
+                
+                print(f"🔄 Cerrando ciclo de botones en OpenAI...")
                 client.responses.create(
-                    model="gpt-4o-mini", conversation=conv_id,
-                    input=[{"type": "function_call_output", "call_id": item.call_id, "output": "Botones mostrados al usuario."}]
+                    model="gpt-4o-mini", 
+                    conversation=conv_id,
+                    input=[{
+                        "type": "function_call_output", 
+                        "call_id": call_id, 
+                        "output": "Botones mostrados exitosamente."
+                    }]
                 )
+                print(f"✨ Ciclo de botones completado.")
                 return None 
 
             if item.type == 'message':
-                return item.content[0].text
+                texto_final = item.content[0].text
+                print(f"💬 Mensaje final de la IA: {texto_final}")
+                return texto_final
+
+        print(f"La IA no generó una acción ni mensaje válido.")
         return "Lum-IA fuera de servicio."
+
     except Exception as e:
+        print(f" ERROR CRÍTICO EN CONSULTAR_IA: {str(e)}")
+        # Esto nos va a decir si el error es 'id', 'call_id' o un problema de JSON
         return f"Error técnico: {e}"
-    
+    finally:
+        print(f"--- 🧠 FIN CONSULTA IA ---\n")
+
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
     body = request.get_json()
