@@ -69,7 +69,15 @@ def recibir_mensajes():
         if mensaje.get('type') == 'text':
             texto = mensaje['text']['body']
         elif mensaje.get('type') == 'interactive':
-            texto = mensaje['interactive']['button_reply']['title']
+            boton_id = mensaje['interactive']['button_reply']['id']
+            texto_boton = mensaje['interactive']['button_reply']['title']
+            
+            if boton_id == "btn_si":
+                texto = "SISTEMA: El usuario aceptó usar el Modo Botones. Mostrale las opciones principales."
+            elif boton_id == "btn_no":
+                texto = "SISTEMA: El usuario prefirió chat tradicional. Saludalo y ponete a disposición."
+            else:
+                texto = texto_boton # Para otros botones, mandamos el texto normal
 
         if texto:
             if if_primer_contacto(to):
@@ -79,6 +87,8 @@ def recibir_mensajes():
                 c_id = obtener_o_crear_conv(to, texto, client)
                 res_ia = consultar_ia(texto, c_id, to)
                 enviar_mensaje(to, res_ia)
+        
+        
                 
     return jsonify({"status": "ok"}), 200
 
