@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from psycopg2.extras import DictCursor
 from database import init_db, get_db_connection, check_if_processed, obtener_o_crear_conv, if_primer_contacto
-from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida 
+from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida, enviar_botones_dinamicos
 from services.calendar_service import agendar_reunion
 
 load_dotenv()
@@ -15,24 +15,56 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 def consultar_ia(texto, conv_id, phone):
     try:
+        # Primera llamada para recibir las instrucciones de la IA
         response = client.responses.create(
             model="gpt-4o-mini", prompt={"id": PROMPT_ID},
             conversation=conv_id, input=texto 
         )
+        
+        outputs_pendientes = []
+        texto_final = None
+
         for item in response.output:
-            if item.type == 'function_call' and item.name == 'agendar_reunion':
+            c_id = getattr(item, 'id', None)
+
+            if item.type == 'function_call':
                 args = json.loads(item.arguments)
-                res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-                client.responses.create(
-                    model="gpt-4o-mini", conversation=conv_id,
-                    input=[{"type": "function_call_output", "call_id": item.call_id, "output": json.dumps({"resultado": res})}]
-                )
-                return f"Confirmado: {res}"
-            if item.type == 'message':
-                return item.content[0].text
-        return "Kat-IA fuera de servicio."
+                
+                if item.name == 'mostrar_menu_botones':
+                    enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
+                    
+                    # Guardamos el output para enviarlo después del bucle
+                    outputs_pendientes.append({
+                        "type": "function_call_output",
+                        "call_id": c_id,
+                        "output": "ok"
+                    })
+
+                elif item.name == 'agendar_reunion':
+                    res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
+                    outputs_pendientes.append({
+                        "type": "function_call_output",
+                        "call_id": c_id,
+                        "output": json.dumps({"resultado": res})
+                    })
+                    texto_final = f"Confirmado: {res}"
+
+            elif item.type == 'message':
+                texto_final = item.content[0].text
+
+        # Si hubo funciones, hacemos una SEGUNDA llamada para cerrar el estado de la conversación
+        if outputs_pendientes:
+            client.responses.create(
+                model="gpt-4o-mini",
+                conversation=conv_id,
+                input=outputs_pendientes 
+            )
+        
+        return texto_final
+
     except Exception as e:
-        return f"Error técnico: {e}"
+        print(f"❌ Error en IA: {e}")
+        return None
 
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
@@ -63,8 +95,17 @@ def recibir_mensajes():
                 enviar_botones_bienvenida(to, nombre_wa)
             else:
                 c_id = obtener_o_crear_conv(to, texto, client)
-                res_ia = consultar_ia(texto, c_id, to)
-                enviar_mensaje(to, res_ia)
+                
+                # Si el usuario clickeó el botón "SI", le damos contexto a la IA
+                input_ia = texto
+                if mensaje.get('type') == 'interactive':
+                    boton_id = mensaje['interactive']['button_reply']['id']
+                    if boton_id == "btn_si":
+                        input_ia = "SISTEMA: El usuario aceptó el Modo Botones. Ejecuta 'mostrar_menu_botones' para darle opciones."
+                
+                res_ia = consultar_ia(input_ia, c_id, to)
+                if res_ia:
+                    enviar_mensaje(to, res_ia)
                 
     return jsonify({"status": "ok"}), 200
 

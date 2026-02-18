@@ -49,3 +49,40 @@ def enviar_botones_bienvenida(to, nombre_usuario):
         }
     }
     requests.post(url, headers=headers, json=data)
+
+def enviar_botones_dinamicos(to, texto, lista_botones):
+    url = f"https://graph.facebook.com/v18.0/{PHONE_ID}/messages"
+    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    
+    botones_formateados = []
+    
+    for i, btn in enumerate(lista_botones):
+        btn_id = btn.get('id', f"btn_dyn_{i}")
+        
+        # titulo maximo 20 carac
+        titulo = btn.get('titulo', 'Opción')[:20]
+        
+        botones_formateados.append({
+            "type": "reply",
+            "reply": {
+                "id": btn_id,
+                "title": titulo
+            }
+        })
+
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": texto},
+            "action": {
+                "buttons": botones_formateados
+            }
+        }
+    }
+    
+    print(f"📤 Enviando botones dinámicos a {to}...")
+    response = requests.post(url, headers=headers, json=data)
+    return response.json()
