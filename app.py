@@ -16,52 +16,61 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 def consultar_ia(texto, conv_id, phone):
     print(f"\n--- 🧠 DEBUG IA ---")
     try:
+        # 1. Creamos la lista de input inicial
+        input_list = [{"role": "user", "content": texto}]
+        
+        # 2. Primera llamada a la IA con las herramientas
         response = client.responses.create(
-            model="gpt-4o-mini", 
+            model="gpt-4o-mini", # O el modelo que estés usando
             prompt={"id": PROMPT_ID},
             conversation=conv_id, 
-            input=texto 
+            input=input_list 
         )
         
+        # Guardamos la salida de la IA en nuestro historial
+        input_list += response.output
+        
+        texto_final = None
+
         for item in response.output:
-            # Capturamos el ID de la llamada para el log
-            current_id = getattr(item, 'id', None)
-            
             if item.type == 'function_call':
+                call_id = item.id # ID que viene de la respuesta
                 args = json.loads(item.arguments)
-                
+                print(f"🔍 Procesando Tool: {item.name} | ID: {call_id}")
+
                 if item.name == 'mostrar_menu_botones':
-                    print(f"🔘 Botones detectados. ID: {current_id}")
-                    # 1. Mandamos los botones a WhatsApp
                     enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
-                    
-                    # 2. CERRAMOS EL CICLO (Obligatorio para que no tire Error 400 después)
-                    # Pero usamos un 'return' para cortar nosotros el flujo de Flask
-                    try:
-                        client.responses.create(
-                            model="gpt-4o-mini", 
-                            conversation=conv_id,
-                            input=[{
-                                "type": "function_call_output", 
-                                "call_id": current_id, 
-                                "output": "ok"
-                            }]
-                        )
-                        print(f"✅ Ciclo de OpenAI cerrado para {current_id}")
-                    except Exception as e_close:
-                        print(f"Error al cerrar ciclo (ignorable): {e_close}")
-                    
-                    # 3. Cortamos acá. No devolvemos nada para que no se mande texto extra
-                    return None
+                    resultado = "ok"
+                elif item.name == 'agendar_reunion':
+                    resultado = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
+                    texto_final = f"Confirmado: {resultado}"
 
-            if item.type == 'message':
-                return item.content[0].text
+                # 4. Agregamos el resultado al historial como pide la docu
+                input_list.append({
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps({"resultado": resultado})
+                })
 
-        return None
+        # 5. Segunda llamada a la IA con el historial completo para cerrar el ciclo
+        # Esto elimina el error 400 porque le enviamos TODO lo que espera
+        print(f"📤 Cerrando ciclo con historial completo...")
+        final_response = client.responses.create(
+            model="gpt-4o-mini",
+            conversation=conv_id,
+            input=input_list
+        )
+        
+        # Si no hubo un texto_final previo, sacamos el texto de la respuesta final
+        if not texto_final:
+            for item in final_response.output:
+                if item.type == 'message':
+                    texto_final = item.content[0].text
+
+        return texto_final
+
     except Exception as e:
-        print(f"❌ ERROR: {str(e)}")
-        # Si es un error de OpenAI por IDs, lo ignoramos y devolvemos None 
-        # para que no le llegue el 'Error técnico' al usuario
+        print(f"❌ ERROR REAL: {str(e)}")
         return None
     
 @app.route('/webhook', methods=['POST'])
