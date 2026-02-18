@@ -38,6 +38,12 @@ def init_db():
             fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS mensajes_procesados (
+            msg_id TEXT PRIMARY KEY,
+            fecha_recepcion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
     conn.commit()
     cur.close()
     conn.close()
@@ -47,11 +53,10 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
     Funcion que llama la IA para crear el evento.
     fecha_iso debe venir en formato '2026-02-18T10:00:00'
     """
-    print(f"📅 Intentando agendar: {nombre_cliente} ({telefono}) para el {fecha_iso}")
     try:
         # Autenticación
         if not os.path.exists('google_key.json'):
-            print("❌ ERROR: No se encontró el archivo google_key.json")
+            print("ERROR: No se encontró el archivo google_key.json")
             return "Error interno: Falta configuración de Google."
 
         creds = service_account.Credentials.from_json_keyfile_name(
@@ -63,57 +68,23 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
             'description': f'Consulta técnica de lead de WhatsApp. Tel: {telefono}',
             'start': {'dateTime': fecha_iso, 'timeZone': 'America/Argentina/Buenos_Aires'},
             'end': {
-                'dateTime': (datetime.datetime.fromisoformat(fecha_iso) + datetime.timedelta(minutes=30)).isoformat(),
+                'dateTime': (datetime.datetime.fromisoformat(fecha_iso) + datetime.timedelta(minutes=60)).isoformat(),
                 'timeZone': 'America/Argentina/Buenos_Aires'
             },
         }
 
-        print("🚀 Enviando petición a Google Calendar API...")
         evento_creado = service.events().insert(calendarId='primary', body=evento, sendUpdates='all').execute()
         
         url_reunion = evento_creado.get('htmlLink')
-        print(f"✅ ¡Éxito! Reunión creada: {url_reunion}")
+        print(f" Reunión creada: {url_reunion}")
         return f"Reunión agendada con éxito: {url_reunion}"
 
     except Exception as e:
-        print(f"❌ ERROR en agendar_reunion: {str(e)}")
+        print(f"ERROR en agendar_reunion: {str(e)}")
         return f"Error al agendar: {e}"
     
-def agendar_reunion(fecha_iso, nombre_cliente, telefono, invitados=None):
-    print(f"📅 Agendando para {nombre_cliente} con invitados: {invitados}")
-    try:
-        creds = service_account.Credentials.from_service_account_file('google_key.json', scopes=SCOPES)
-        service = build('calendar', 'v3', credentials=creds)
-
-        # Preparamos la lista de invitados para Google
-        attendees = []
-        if invitados:
-            attendees = [{"email": email.strip()} for email in invitados]
-
-        evento = {
-            'summary': f'Reunión CallBotIA: {nombre_cliente}',
-            'description': f'Lead de WhatsApp: {telefono}',
-            'start': {'dateTime': fecha_iso, 'timeZone': 'America/Argentina/Buenos_Aires'},
-            'end': {
-                'dateTime': (datetime.datetime.fromisoformat(fecha_iso) + datetime.timedelta(minutes=30)).isoformat(),
-                'timeZone': 'America/Argentina/Buenos_Aires'
-            },
-            'attendees': attendees, # <--- Acá van los mails
-        }
-
-        # sendUpdates='all' hace que Google mande el mail de invitación de una
-        evento_creado = service.events().insert(
-            calendarId='reuniones.callbotia@gmail.com', 
-            body=evento,
-            sendUpdates='all' 
-        ).execute()
-        
-        return f"Reunión agendada con éxito: {evento_creado.get('htmlLink')}"
-    except Exception as e:
-        return f"Error al agendar: {e}"
     
 def consultar_ia(texto_usuario, conversation_id, phone_number):
-    print(f"🤖 Consultando a Kat-IA para el usuario {phone_number}...")
     try:
         response = client.responses.create(
             model="gpt-4o-mini", 
@@ -127,17 +98,11 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
             if item.type == 'function_call' and item.name == 'agendar_reunion':
                 call_id = item.call_id
                 args = json.loads(item.arguments) if isinstance(item.arguments, str) else item.arguments
-                
-                print(f"📞 Kat-IA pidió agendar (ID: {call_id})")
-                
                 resultado_proceso = agendar_reunion(
                     fecha_iso=args['fecha_hora'], 
                     nombre_cliente=args['nombre_cliente'],
-                    telefono=phone_number,
-                    invitados=args.get('invitados') # opcional
+                    telefono=phone_number
                 )
-                
-                print("🔄 Enviando resultado a OpenAI...")
                 final_response = client.responses.create(
                     model="gpt-4o-mini",
                     conversation=conversation_id,
@@ -158,7 +123,7 @@ def consultar_ia(texto_usuario, conversation_id, phone_number):
         return "Kat-IA no generó una respuesta de texto."
 
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO: {str(e)}")
+        print(f"ERROR CRÍTICO: {str(e)}")
         return "Hubo un error técnico. Por favor, intentá de nuevo."
 
 def obtener_o_crear_conversacion(phone_number, texto_usuario):
@@ -199,14 +164,28 @@ def recibir_mensajes():
             texto_usuario = mensaje['text']['body']
             numero_que_llega = mensaje['from']
             numero_destino = "54" + numero_que_llega[3:] if numero_que_llega.startswith("549") else numero_que_llega
-
-            # CORREGIDO: Ahora pasamos ambos argumentos
+            msg_id = mensaje.get('id') 
+            if check_if_processed(msg_id):
+                return jsonify({"status": "skipped"}), 200
             conv_id = obtener_o_crear_conversacion(numero_destino, texto_usuario)
             respuesta_ia = consultar_ia(texto_usuario, conv_id, numero_destino)
             enviar_mensaje(numero_destino, respuesta_ia)
             
     return jsonify({"status": "ok"}), 200
 
+def check_if_processed(msg_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("INSERT INTO mensajes_procesados (msg_id) VALUES (%s)", (msg_id,))
+        conn.commit()
+        return False 
+    except psycopg2.IntegrityError:# si da error de integridad es porque el id ya existe
+        conn.rollback()
+        return True
+    finally:
+        cur.close()
+        conn.close()
 @app.route('/webhook', methods=['GET'])
 def webhook():
     mode = request.args.get('hub.mode')
@@ -226,7 +205,7 @@ def enviar_mensaje(to, text):
         "text": {"body": text}
     }
     response = requests.post(url, headers=headers, json=data)
-    print(f"estado envio: {response.status_code}")
+    print(f"Estado envio: {response.status_code}")
     return response.json()
 
 @app.route('/dashboard')
@@ -294,7 +273,7 @@ def eliminar_lead(id):
         conn.commit()
         cur.close()
         conn.close()
-        print(f"🗑️ Lead ID {id} eliminado de la base de datos.")
+        print(f"Lead ID {id} eliminado de la base de datos.")
         # Redirigimos de vuelta al dashboard para ver el cambio
         return """<script>alert('Lead eliminado con éxito'); window.location.href='/dashboard';</script>"""
     except Exception as e:
