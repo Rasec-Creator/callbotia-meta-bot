@@ -2,6 +2,7 @@ import os, json
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from openai import OpenAI
+import datetime
 import threading
 from psycopg2.extras import DictCursor
 from database import init_db, get_db_connection, check_if_processed, create_or_update_conv, if_primer_contacto
@@ -60,8 +61,23 @@ def ejecutar_herramienta(item, phone):
         return {"status": "ok"}, None
         
     elif nombre == 'agendar_reunion':
-        res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-        return {"resultado": res}, f"¡Listo! {res}"
+            res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
+            
+            if res.get("status") == "success":
+                try:
+                    dt = datetime.datetime.fromisoformat(res['inicio'])
+                    fecha_formateada = dt.strftime("%d/%m/%Y a las %H:%M hs")
+                except:
+                    fecha_formateada = res['inicio']
+                msg_p_usuario = (
+                    f"✅ ¡Reunión confirmada, {res['cliente']}!\n\n"
+                    f"📅 *Fecha:* {fecha_formateada}\n"
+                    f"🔗 *Link de la reunión:* {res['meet_link']}\n\n"
+                    f"¡Te espero ahí para potenciar tu proyecto! 🚀"
+                )
+                return res, msg_p_usuario
+            else:
+                return res, f"Che, hubo un problema al agendar: {res.get('message')}"
     
     return {"error": "función no encontrada"}, None
 
