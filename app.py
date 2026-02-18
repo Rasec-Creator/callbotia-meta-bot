@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from psycopg2.extras import DictCursor
 from database import init_db, get_db_connection, check_if_processed, obtener_o_crear_conv, if_primer_contacto
-from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida, enviar_botones_dinamicos
+from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida 
 from services.calendar_service import agendar_reunion
 
 load_dotenv()
@@ -14,65 +14,26 @@ PROMPT_ID = os.getenv("PROMPT_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 def consultar_ia(texto, conv_id, phone):
-    print(f"\n--- 🧠 DEBUG IA ---")
     try:
-        # 1. Creamos la lista de input inicial
-        input_list = [{"role": "user", "content": texto}]
-        
-        # 2. Primera llamada a la IA con las herramientas
         response = client.responses.create(
-            model="gpt-4o-mini", # O el modelo que estés usando
-            prompt={"id": PROMPT_ID},
-            conversation=conv_id, 
-            input=input_list 
+            model="gpt-4o-mini", prompt={"id": PROMPT_ID},
+            conversation=conv_id, input=texto 
         )
-        
-        # Guardamos la salida de la IA en nuestro historial
-        input_list += response.output
-        
-        texto_final = None
-
         for item in response.output:
-            if item.type == 'function_call':
-                call_id = item.id # ID que viene de la respuesta
+            if item.type == 'function_call' and item.name == 'agendar_reunion':
                 args = json.loads(item.arguments)
-                print(f"🔍 Procesando Tool: {item.name} | ID: {call_id}")
-
-                if item.name == 'mostrar_menu_botones':
-                    enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
-                    resultado = "ok"
-                elif item.name == 'agendar_reunion':
-                    resultado = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-                    texto_final = f"Confirmado: {resultado}"
-
-                # 4. Agregamos el resultado al historial como pide la docu
-                input_list.append({
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": json.dumps({"resultado": resultado})
-                })
-
-        # 5. Segunda llamada a la IA con el historial completo para cerrar el ciclo
-        # Esto elimina el error 400 porque le enviamos TODO lo que espera
-        print(f"📤 Cerrando ciclo con historial completo...")
-        final_response = client.responses.create(
-            model="gpt-4o-mini",
-            conversation=conv_id,
-            input=input_list
-        )
-        
-        # Si no hubo un texto_final previo, sacamos el texto de la respuesta final
-        if not texto_final:
-            for item in final_response.output:
-                if item.type == 'message':
-                    texto_final = item.content[0].text
-
-        return texto_final
-
+                res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
+                client.responses.create(
+                    model="gpt-4o-mini", conversation=conv_id,
+                    input=[{"type": "function_call_output", "call_id": item.call_id, "output": json.dumps({"resultado": res})}]
+                )
+                return f"Confirmado: {res}"
+            if item.type == 'message':
+                return item.content[0].text
+        return "Kat-IA fuera de servicio."
     except Exception as e:
-        print(f"❌ ERROR REAL: {str(e)}")
-        return None
-    
+        return f"Error técnico: {e}"
+
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
     body = request.get_json()
@@ -94,15 +55,7 @@ def recibir_mensajes():
         if mensaje.get('type') == 'text':
             texto = mensaje['text']['body']
         elif mensaje.get('type') == 'interactive':
-            boton_id = mensaje['interactive']['button_reply']['id']
-            texto_boton = mensaje['interactive']['button_reply']['title']
-            
-            if boton_id == "btn_si":
-                texto = "SISTEMA: El usuario aceptó usar el Modo Botones. Mostrale las opciones principales."
-            elif boton_id == "btn_no":
-                texto = "SISTEMA: El usuario prefirió chat tradicional. Saludalo y ponete a disposición."
-            else:
-                texto = texto_boton # Para otros botones, mandamos el texto normal
+            texto = mensaje['interactive']['button_reply']['title']
 
         if texto:
             if if_primer_contacto(to):
@@ -111,10 +64,7 @@ def recibir_mensajes():
             else:
                 c_id = obtener_o_crear_conv(to, texto, client)
                 res_ia = consultar_ia(texto, c_id, to)
-                if res_ia: # Si es None (porque fueron botones), no mandamos nada extra
-                    enviar_mensaje(to, res_ia)
-        
-        
+                enviar_mensaje(to, res_ia)
                 
     return jsonify({"status": "ok"}), 200
 
