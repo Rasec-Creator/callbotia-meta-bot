@@ -23,17 +23,11 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
         evento = {
             'summary': f'Reunión CallBotIA: {nombre_cliente}',
             'description': f'WhatsApp: {telefono}\nLink de la reunión: {MEET_LINK}',
-            'location': MEET_LINK,
             'start': {'dateTime': fecha_iso, 'timeZone': 'America/Argentina/Buenos_Aires'},
             'end': {'dateTime': fecha_fin_iso, 'timeZone': 'America/Argentina/Buenos_Aires'},
-            'guestsCanInviteOthers': True,
-            'guestsCanSeeOtherGuests': True,
         }
-        evento_creado = service.events().insert(calendarId='primary', body=evento).execute()
+        evento_creado = service.events().insert(calendarId='reuniones.callbotia@gmail.com', body=evento).execute()
         
-        # Probá imprimir todo el objeto para encontrar el link de la captura
-        import json
-        print(f"DEBUG OBJETO COMPLETO: {json.dumps(evento_creado, indent=2)}")
         return {
             "status": "success",
             "calendar_link": evento_creado.get('htmlLink'),
