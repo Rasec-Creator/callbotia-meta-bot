@@ -24,55 +24,38 @@ def consultar_ia(texto, conv_id, phone):
         )
         
         for item in response.output:
-            # Intentamos sacar el ID de forma segura
-            item_id = getattr(item, 'id', None)
-            print(f"🔍 Procesando item tipo: {item.type} | ID detectado: {item_id}")
-
-            # CASO: Botones Dinámicos
-            if item.type == 'function_call' and item.name == 'mostrar_menu_botones':
+            # En la Responses API, el ID está en item.id
+            current_id = getattr(item, 'id', None)
+            
+            if item.type == 'function_call':
                 args = json.loads(item.arguments)
-                print(f"🔘 Ejecutando botones: {args}")
                 
-                enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
-                
-                # Cierre de ciclo obligatorio
-                if item_id:
+                if item.name == 'mostrar_menu_botones':
+                    print(f"🔘 Botones detectados. ID: {current_id}")
+                    # Mandamos los botones (ahora la función es a prueba de errores)
+                    enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
+                    
+                    # Cerramos ciclo para que OpenAI no tire Error 400 después
                     client.responses.create(
-                        model="gpt-4o-mini", 
-                        conversation=conv_id,
-                        input=[{
-                            "type": "function_call_output", 
-                            "call_id": item_id, 
-                            "output": "ok"
-                        }]
+                        model="gpt-4o-mini", conversation=conv_id,
+                        input=[{"type": "function_call_output", "call_id": current_id, "output": "ok"}]
                     )
-                return None 
+                    return None
 
-            # CASO: Agendar Reunión
-            if item.type == 'function_call' and item.name == 'agendar_reunion':
-                args = json.loads(item.arguments)
-                res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-                
-                if item_id:
+                if item.name == 'agendar_reunion':
+                    res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
                     client.responses.create(
-                        model="gpt-4o-mini", 
-                        conversation=conv_id,
-                        input=[{
-                            "type": "function_call_output", 
-                            "call_id": item_id, 
-                            "output": json.dumps({"resultado": res})
-                        }]
+                        model="gpt-4o-mini", conversation=conv_id,
+                        input=[{"type": "function_call_output", "call_id": current_id, "output": json.dumps({"res": res})}]
                     )
-                return f"Confirmado: {res}"
+                    return f"Confirmado: {res}"
 
             if item.type == 'message':
                 return item.content[0].text
 
-        return "Lum-IA sin respuesta clara."
-
+        return "Sin respuesta."
     except Exception as e:
-        print(f"❌ ERROR REAL: {str(e)}")
-        # Si el error sigue siendo 'id', es que el objeto 'item' tiene otra estructura
+        print(f"❌ ERROR: {str(e)}")
         return f"Error técnico: {e}"
     
 @app.route('/webhook', methods=['POST'])

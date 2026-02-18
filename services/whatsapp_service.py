@@ -20,12 +20,14 @@ def enviar_botones_dinamicos(to, texto, lista_botones):
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     
     formatted_buttons = []
-    for btn in lista_botones:
+    for i, btn in enumerate(lista_botones):
+        btn_id = btn.get('id', f"btn_{i}") 
+        
         formatted_buttons.append({
             "type": "reply",
             "reply": {
-                "id": btn['id'],
-                "title": btn['titulo'][:20]
+                "id": btn_id,
+                "title": btn['titulo'][:20] 
             }
         })
 
