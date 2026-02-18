@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from psycopg2.extras import DictCursor
 from database import init_db, get_db_connection, check_if_processed, obtener_o_crear_conv, if_primer_contacto
-from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida 
+from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida, enviar_botones_dinamicos
 from services.calendar_service import agendar_reunion
 
 load_dotenv()
@@ -20,20 +20,34 @@ def consultar_ia(texto, conv_id, phone):
             conversation=conv_id, input=texto 
         )
         for item in response.output:
+            # CASO 1: Agendar Calendario
             if item.type == 'function_call' and item.name == 'agendar_reunion':
                 args = json.loads(item.arguments)
                 res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
+                # OJO: Siempre cerrar el ciclo de la función
                 client.responses.create(
                     model="gpt-4o-mini", conversation=conv_id,
                     input=[{"type": "function_call_output", "call_id": item.call_id, "output": json.dumps({"resultado": res})}]
                 )
                 return f"Confirmado: {res}"
+
+            # CASO 2: Botones Dinámicos
+            if item.type == 'function_call' and item.name == 'mostrar_menu_botones':
+                args = json.loads(item.arguments)
+                enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
+                # TAMBIÉN cerramos el ciclo acá para que la IA sepa que ya se mostraron
+                client.responses.create(
+                    model="gpt-4o-mini", conversation=conv_id,
+                    input=[{"type": "function_call_output", "call_id": item.call_id, "output": "Botones mostrados al usuario."}]
+                )
+                return None 
+
             if item.type == 'message':
                 return item.content[0].text
-        return "Kat-IA fuera de servicio."
+        return "Lum-IA fuera de servicio."
     except Exception as e:
         return f"Error técnico: {e}"
-
+    
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
     body = request.get_json()
