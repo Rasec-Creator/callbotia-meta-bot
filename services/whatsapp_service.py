@@ -26,7 +26,7 @@ def enviar_botones_bienvenida(to, nombre_usuario):
         "interactive": {
             "type": "button",
             "body": {
-                "text": f"Hola {nombre_usuario}, ¿Cómo estás? 🙋‍♂️ Soy Lum-IA, asistente virtual de CallBotIA, si quieres, además de escribirme, también puedes interactuar conmigo en 'Modo Botones' 📊 ¿Quieres continuar? 👍"
+                "text": f"Hola {nombre_usuario}, ¿Cómo estás? 🙋‍♂️ Soy KatIA, asistente virtual de CallBotIA, si quieres, además de escribirme, también puedes interactuar conmigo en 'Modo Botones' 📊 ¿Quieres continuar? 👍"
             },
             "action": {
                 "buttons": [

@@ -58,13 +58,10 @@ def recibir_mensajes():
             texto = mensaje['interactive']['button_reply']['title']
 
         if texto:
-            # CHEQUEO DE ORO: ¿Es la primera vez que nos escribe?
             if if_primer_contacto(to):
-                print(f"🌟 Nuevo lead detectado: {to}")
-                # Enviamos el saludo inicial con botones de Lum-IA
+                c_id = obtener_o_crear_conv(to, texto, client)
                 enviar_botones_bienvenida(to, nombre_wa)
             else:
-                # Ya es un cliente conocido, seguimos la charla con OpenAI
                 c_id = obtener_o_crear_conv(to, texto, client)
                 res_ia = consultar_ia(texto, c_id, to)
                 enviar_mensaje(to, res_ia)
@@ -82,7 +79,6 @@ def ver_dashboard():
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=DictCursor)
-        # Traemos también el conversation_id para saber si está vacío o no
         cur.execute("SELECT id, telefono, ultimo_mensaje, fecha_actualizacion, conversation_id FROM leads ORDER BY fecha_actualizacion DESC")
         leads = cur.fetchall()
         cur.close()
@@ -114,7 +110,6 @@ def ver_dashboard():
                 </tr>
         """
         for lead in leads:
-            # Agregamos un botón que llama a la ruta /eliminar/<id>
             html += f"""
                 <tr>
                     <td>{lead['id']}</td>
@@ -131,19 +126,16 @@ def ver_dashboard():
     except Exception as e:
         return f"<h3>Error al cargar el dashboard:</h3><p>{e}</p>"
 
-# NUEVA RUTA: Para procesar el borrado
 @app.route('/eliminar/<int:id>')
 def eliminar_lead(id):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        # Borramos físicamente el registro
         cur.execute("DELETE FROM leads WHERE id = %s", (id,))
         conn.commit()
         cur.close()
         conn.close()
         print(f"Lead ID {id} eliminado de la base de datos.")
-         # Redirigimos de vuelta al dashboard para ver el cambio
         return """<script>alert('Lead eliminado con éxito'); window.location.href='/dashboard';</script>"""
     except Exception as e:
         return f"Error al eliminar: {e}"
