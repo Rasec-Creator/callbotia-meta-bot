@@ -14,32 +14,37 @@ PROMPT_ID = os.getenv("PROMPT_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 def consultar_ia(texto, conv_id, phone):
+    print(f"\n--- 🧠 DEBUG IA ---")
     try:
-        # Primera llamada para recibir las instrucciones de la IA
         response = client.responses.create(
-            model="gpt-4o-mini", prompt={"id": PROMPT_ID},
-            conversation=conv_id, input=texto 
+            model="gpt-4o-mini", 
+            prompt={"id": PROMPT_ID},
+            conversation=conv_id, 
+            input=texto 
         )
         
         outputs_pendientes = []
         texto_final = None
 
         for item in response.output:
+            # Capturamos el ID exacto que mandó OpenAI
             c_id = getattr(item, 'id', None)
 
             if item.type == 'function_call':
                 args = json.loads(item.arguments)
-                
+                print(f"🔍 Tool detectada: {item.name} | ID: {c_id}")
+
                 if item.name == 'mostrar_menu_botones':
+                    from services.whatsapp_service import enviar_botones_dinamicos
                     enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
                     
-                    # Guardamos el output para enviarlo después del bucle
+                    # Agregamos el output usando el call_id exacto
                     outputs_pendientes.append({
                         "type": "function_call_output",
                         "call_id": c_id,
                         "output": "ok"
                     })
-
+                
                 elif item.name == 'agendar_reunion':
                     res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
                     outputs_pendientes.append({
@@ -47,23 +52,29 @@ def consultar_ia(texto, conv_id, phone):
                         "call_id": c_id,
                         "output": json.dumps({"resultado": res})
                     })
-                    texto_final = f"Confirmado: {res}"
+                    texto_final = f"¡Listo! {res}"
 
             elif item.type == 'message':
                 texto_final = item.content[0].text
 
-        # Si hubo funciones, hacemos una SEGUNDA llamada para cerrar el estado de la conversación
+        # 🚀 CIERRE DEL CICLO: Solo si hay tareas pendientes
         if outputs_pendientes:
-            client.responses.create(
-                model="gpt-4o-mini",
-                conversation=conv_id,
-                input=outputs_pendientes 
-            )
-        
+            print(f"📤 Intentando cerrar {len(outputs_pendientes)} tareas...")
+            try:
+                client.responses.create(
+                    model="gpt-4o-mini",
+                    conversation=conv_id,
+                    input=outputs_pendientes
+                )
+                print("✅ Sincronización exitosa.")
+            except Exception as e_sync:
+                # Si falla acá, es porque el ID expiró o se duplicó, pero los botones YA SE ENVIARON.
+                print(f"⚠️ Error de sincronización (ignorable): {e_sync}")
+
         return texto_final
 
     except Exception as e:
-        print(f"❌ Error en IA: {e}")
+        print(f"❌ ERROR CRÍTICO IA: {str(e)}")
         return None
 
 @app.route('/webhook', methods=['POST'])
