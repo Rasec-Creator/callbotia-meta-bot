@@ -8,6 +8,7 @@ from psycopg2.extras import DictCursor
 from database import init_db, get_db_connection, check_if_processed, create_or_update_conv, if_primer_contacto
 from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida, enviar_botones_dinamicos
 from services.calendar_service import agendar_reunion
+from services.mail_service import enviar_mail_smtp
 
 load_dotenv()
 app = Flask(__name__)
@@ -36,20 +37,19 @@ def consultar_ia(texto, conv_id, phone):
 
             if item.type == 'function_call':
                 resultado_tool, msg_usuario = ejecutar_herramienta(item, phone)
-                
+                # si la herramienta trajo mensaje
+                if msg_usuario:
+                    enviar_mensaje(phone, msg_usuario)
                 outputs_pendientes.append({
                     "type": "function_call_output",
                     "call_id": c_id,
                     "output": json.dumps(resultado_tool)
                 })
-                # si la herramienta trajo mensaje
-                if msg_usuario:
-                    texto_final = msg_usuario
             elif item.type == 'message':
                 texto_final = item.content[0].text
         # cierre de ciclo
         if outputs_pendientes:
-            sincronizar_ia(conv_id, outputs_pendientes)
+           threading.Thread(target=sincronizar_ia, args=(conv_id, outputs_pendientes)).start()
         return texto_final
     except Exception as e:
         print(f"ERROR IA: {str(e)}")
@@ -92,7 +92,23 @@ def ejecutar_herramienta(item, phone):
             return res, msg_p_usuario
         else:
             return res, f"Hubo un problema al agendar: {res.get('message')}"
-    
+    elif nombre == 'enviar_email':
+        exito = enviar_mail_smtp(
+            destinatario=args['email_destino'],
+            asunto=args['asunto'],
+            contenido_ia=args['cuerpo']
+        )
+        
+        if exito:
+            res = {"status": "success", "email": args['email_destino']}
+            msg_p_usuario = (
+                f"📩 ¡Listo! Acabo de enviarte toda la info a *{args['email_destino']}*.\n\n"
+                f"Fijate si te llegó y cualquier cosa me avisás."
+            )
+            return res, msg_p_usuario
+        else:
+            res = {"status": "error", "message": "fallo el servidor smtp"}
+            return res, "Uy, tuve un problema técnico al intentar mandarte el mail. ¿Querés que probemos de nuevo?"
     return {"error": "función no encontrada"}, None
 
 """Envia los outputs para cerrar la funcion."""
@@ -125,7 +141,8 @@ def recibir_mensajes():
     contacto = value.get('contacts', [{}])[0]
     nombre_wa = contacto.get('profile', {}).get('name', 'Usuario')
     numero = mensaje['from']
-    to = "54" + numero[3:] if numero.startswith("549") else numero
+    #to = "54" + numero[3:] if numero.startswith("549") else numero
+    to = numero
     
     texto, boton_id = extraer_contenido(mensaje)
 

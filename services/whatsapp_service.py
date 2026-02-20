@@ -61,11 +61,14 @@ def enviar_botones_dinamicos(to, texto, lista_botones):
     
     botones_formateados = []
     
-    for i, btn in enumerate(lista_botones):
+    # whatsapp solo permite hasta 3 botones, limitemos la lista
+    for i, btn in enumerate(lista_botones[:3]):
         btn_id = btn.get('id', f"btn_dyn_{i}")
+        titulo = btn.get('titulo', 'Opción')
         
-        # titulo maximo 20 carac
-        titulo = btn.get('titulo', 'Opción')[:20]
+        # si supera los 20, cortamos y ponemos puntos suspensivos
+        if len(titulo) > 20:
+            titulo = titulo[:17] + "..."
         
         botones_formateados.append({
             "type": "reply",
@@ -87,5 +90,10 @@ def enviar_botones_dinamicos(to, texto, lista_botones):
             }
         }
     }
+    
     response = requests.post(url, headers=headers, json=data)
-    return response.json()
+    res_json = response.json()
+    if response.status_code != 200:
+        print(f"ERROR META: {res_json}")
+        
+    return res_json

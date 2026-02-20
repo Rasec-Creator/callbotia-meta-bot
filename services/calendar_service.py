@@ -30,7 +30,6 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
         
         return {
             "status": "success",
-            "calendar_link": evento_creado.get('htmlLink'),
             "meet_link": MEET_LINK,
             "inicio": fecha_iso,
             "fin": fecha_fin_iso,
