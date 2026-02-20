@@ -1,10 +1,15 @@
+import base64
 import requests
 import os
 from dotenv import load_dotenv 
+import requests
+from openai import OpenAI
+
 load_dotenv()
 
 PHONE_ID = os.getenv("PHONE_ID")
 TOKEN = os.getenv("TOKEN")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def enviar_mensaje(to, text):
     url = f"https://graph.facebook.com/v18.0/{PHONE_ID}/messages"
@@ -97,3 +102,48 @@ def enviar_botones_dinamicos(to, texto, lista_botones):
         print(f"ERROR META: {res_json}")
         
     return res_json
+
+def obtener_media_url(media_id):
+    url = f"https://graph.facebook.com/v18.0/{media_id}"
+    headers = {"Authorization": f"Bearer {os.getenv('TOKEN')}"}
+    res = requests.get(url, headers=headers)
+    return res.json().get('url')
+
+def descargar_y_codificar(url):
+    headers = {"Authorization": f"Bearer {os.getenv('TOKEN')}"}
+    img_res = requests.get(url, headers=headers)
+    # La pasamos a base64 para que OpenAI la reciba 
+    return base64.b64encode(img_res.content).decode('utf-8')
+
+# descarga un audio de la URL de Meta y lo transcribe con Whisper.
+def transcribir_audio(url):
+    headers = {"Authorization": f"Bearer {os.getenv('TOKEN')}"}
+    temp_filename = "temp_audio.ogg"
+    try:
+        # bajamos el archivo de meta
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            print(f"ERROR DESCARGA: {response.status_code}")
+            return None
+
+        # guardamos
+        with open(temp_filename, "wb") as f:
+            f.write(response.content)
+
+        # mandamos a whisper
+        with open(temp_filename, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file
+            )
+        
+        # borramos el archivo para no llenar la memoria
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        return transcription.text
+
+    except Exception as e:
+        print(f"ERROR EN TRANSCRIPCION: {e}")
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+        return None

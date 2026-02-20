@@ -6,7 +6,7 @@ import datetime
 import threading
 from psycopg2.extras import DictCursor
 from database import init_db, get_db_connection, check_if_processed, create_or_update_conv, if_primer_contacto
-from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida, enviar_botones_dinamicos
+from services.whatsapp_service import enviar_mensaje, enviar_botones_bienvenida, enviar_botones_dinamicos, descargar_y_codificar, obtener_media_url, transcribir_audio
 from services.calendar_service import agendar_reunion
 from services.mail_service import enviar_mail_smtp
 
@@ -16,9 +16,29 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 PROMPT_ID = os.getenv("PROMPT_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
-def consultar_ia(texto, conv_id, phone):
+def consultar_ia(texto, conv_id, phone,imagen_b64=None):
     ahora = datetime.datetime.now()
     fecha_string = ahora.strftime("%A %d/%m/%Y %H:%M hs")
+    # usamos la API de chat (soporta imagenes) para describirla
+    if imagen_b64:
+        try:
+            res_vision = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Describe brevemente que se ve en esta imagen para que otro asistente pueda entender el contexto."},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{imagen_b64}"}}
+                    ]
+                }]
+            )
+            descripcion = res_vision.choices[0].message.content
+            input_ia = f"\n[EL USUARIO ENVIÓ UNA IMAGEN: {descripcion}]\n Caption de la imagen: {texto}"
+        except Exception as e:
+            print(f"Error en visión: {e}")
+            input_ia = "\n[EL USUARIO ENVIÓ UNA IMAGEN QUE NO PUDISTE PROCESAR]\n Caption de la imagen: {texto}"
+    else:
+        input_ia = texto
     try:
         response = client.responses.create(
             model="gpt-4o-mini", 
@@ -27,7 +47,7 @@ def consultar_ia(texto, conv_id, phone):
                         "fecha_actual": fecha_string
                     }},
             conversation=conv_id, 
-            input=texto 
+            input=input_ia 
         )
         outputs_pendientes = []
         texto_final = None
@@ -144,13 +164,12 @@ def recibir_mensajes():
     #to = "54" + numero[3:] if numero.startswith("549") else numero
     to = numero
     
-    texto, boton_id = extraer_contenido(mensaje)
-
-    if texto:
-        # procesamiento en segundo plano (responde 200 a meta evita reintentos)
-        thread = threading.Thread(
+    texto, boton_id, media_id, tipo = extraer_contenido(mensaje)
+      
+    if texto or media_id:
+        thread = threading.Thread(  # procesamiento en segundo plano (responde 200 a meta evita reintentos)
             target=procesar_respuesta_ia, 
-            args=(to, nombre_wa, texto, boton_id)
+            args=(to, nombre_wa, texto, boton_id, media_id, tipo)
         )
         thread.start()
 
@@ -161,32 +180,52 @@ def recibir_mensajes():
 def extraer_contenido(mensaje):
     texto = ""
     boton_id = None
-    if mensaje.get('type') == 'text':
+    media_id = None
+    tipo = mensaje.get('type')
+
+    if tipo == 'text':
         texto = mensaje['text']['body']
-    elif mensaje.get('type') == 'interactive':
+    elif tipo == 'interactive':
         texto = mensaje['interactive']['button_reply']['title']
         boton_id = mensaje['interactive']['button_reply']['id']
-    return texto, boton_id
-
+    elif tipo == 'image':
+        media_id = mensaje['image']['id']
+        texto = mensaje['image'].get('caption', 'El usuario envió una imagen') # texto que acompaña la foto
+    elif tipo == 'audio':
+        media_id = mensaje['audio']['id']
+        
+    return texto, boton_id, media_id, tipo
 """Logica de negocio"""
-def procesar_respuesta_ia(to, nombre_wa, texto, boton_id):
+def procesar_respuesta_ia(to, nombre_wa, texto, boton_id, media_id=None, tipo=None):
     try:
+        nuevo=if_primer_contacto(to)
+        c_id = create_or_update_conv(to, nombre_wa, texto, client)
         # manejo de base de datos y conver
-        if if_primer_contacto(to):
-            c_id = create_or_update_conv(to, nombre_wa, texto, client)
+        if nuevo:
             enviar_botones_bienvenida(to, nombre_wa)
-        else:
-            c_id = create_or_update_conv(to, nombre_wa, texto, client)
-            # contexto para botones
-            input_ia = nombre_wa+texto
-            if boton_id == "btn_si":
-                input_ia = f"{nombre_wa} acepto el Modo Botones. Ejecuta 'mostrar_menu_botones' para darle opciones."
-            elif boton_id == "btn_no":
-                input_ia = f"{nombre_wa} prefirio seguir en chat. Continuar la conversacion en modo texto."
-            # consulta a la IA y envio
-            res_ia = consultar_ia(input_ia, c_id, to)
-            if res_ia:
-                enviar_mensaje(to, res_ia)
+            return
+        # imagen o audio, procesamos antes de mandar a IA
+        imagen_b64 = None
+        input_ia = f"{nombre_wa}: {texto}"
+        # procesamiento multimedia
+        if tipo == 'image' and media_id:
+            url = obtener_media_url(media_id)
+            imagen_b64 = descargar_y_codificar(url)
+        
+        elif tipo == 'audio' and media_id:
+            url = obtener_media_url(media_id)
+            texto_audio = transcribir_audio(url) 
+            if texto_audio:
+                input_ia = f"{nombre_wa} (audio transcripto): {texto_audio}"
+        # contexto para botones
+        if boton_id == "btn_si":
+            input_ia = f"{nombre_wa} acepto el Modo Botones. Ejecuta 'mostrar_menu_botones' para darle opciones."
+        elif boton_id == "btn_no":
+            input_ia = f"{nombre_wa} prefirio seguir en chat. Continuar la conversacion en modo texto."
+        # consulta a la IA y envio
+        res_ia = consultar_ia(input_ia, c_id, to, imagen_b64)
+        if res_ia:
+            enviar_mensaje(to, res_ia)
                 
     except Exception as e:
         print(f"Error en procesar_respuesta_ia: {e}")
