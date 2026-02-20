@@ -16,11 +16,15 @@ PROMPT_ID = os.getenv("PROMPT_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 def consultar_ia(texto, conv_id, phone):
-
+    ahora = datetime.datetime.now()
+    fecha_string = ahora.strftime("%A %d/%m/%Y %H:%M hs")
     try:
         response = client.responses.create(
             model="gpt-4o-mini", 
-            prompt={"id": PROMPT_ID},
+            prompt={"id": PROMPT_ID,
+                    "variables": {
+                        "fecha_actual": fecha_string
+                    }},
             conversation=conv_id, 
             input=texto 
         )
@@ -48,7 +52,7 @@ def consultar_ia(texto, conv_id, phone):
             sincronizar_ia(conv_id, outputs_pendientes)
         return texto_final
     except Exception as e:
-        print(f"❌ ERROR IA: {str(e)}")
+        print(f"ERROR IA: {str(e)}")
         return None
     
 """Maneja cada funcion por separado."""
