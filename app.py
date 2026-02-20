@@ -222,7 +222,6 @@ def ver_dashboard():
             </head>
         <body>
             <h2>Leads de CallBotIA - Kat-IA</h2>
-            <p><i>Si el bot tira error 400, borrá el registro para resetear la charla.</i></p>
             <table>
                 <tr>
                     <th>ID</th>
