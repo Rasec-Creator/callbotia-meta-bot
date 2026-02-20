@@ -37,7 +37,7 @@ def enviar_mail_smtp(destinatario, asunto, contenido_ia):
     """
 
     msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL
+    msg['From'] = f"CallBotIA <{SENDER_EMAIL}>"
     msg['To'] = destinatario
     msg['Subject'] = asunto
     msg.attach(MIMEText(html, 'html'))
