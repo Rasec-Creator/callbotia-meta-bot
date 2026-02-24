@@ -3,13 +3,13 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 def enviar_mail_smtp(destinatario, asunto, contenido_ia):
-    # Configuración de tu server (ej: Gmail o Outlook)
+    # configuracion de server
     SMTP_SERVER = "C2720203.ferozo.com"
     SMTP_PORT = 465
     SENDER_EMAIL = "agent@callbotia.com"
     SENDER_PASSWORD = "J@dEGO*8cD" 
 
-    # Armamos el HTML con un template fijo
+    # template
     html = f"""
 <!DOCTYPE html>
 <html lang="es">
