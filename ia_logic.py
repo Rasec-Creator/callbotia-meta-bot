@@ -3,7 +3,7 @@ from threading import Lock
 from openai import OpenAI
 from services.whatsapp_service import enviar_mensaje, enviar_botones_dinamicos
 from services.calendar_service import agendar_reunion
-from services.mail_service import enviar_mail_smtp
+from services.mail_service import enviar_mail_resend
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 PROMPT_ID = os.getenv("PROMPT_ID")
@@ -87,8 +87,8 @@ def ejecutar_herramienta(item, phone):
         return res, f"error al agendar: {res.get('message')}"
 
     elif n == 'enviar_email':
-        if enviar_mail_smtp(args['email_destino'], args['asunto'], args['cuerpo']):
+        if enviar_mail_resend(args['email_destino'], args['asunto'], args['cuerpo']):
             return {"status": "success"}, f"📩 ¡Listo! Info enviada a *{args['email_destino']}*."
-        return {"status": "error"}, "uy, fallo el mail. probamos de nuevo?"
+        return {"status": "error"}, "Fallo el envio del mail. Queres que intente de nuevo o tenes otra consulta?"
 
     return {"error": "no encontrada"}, None

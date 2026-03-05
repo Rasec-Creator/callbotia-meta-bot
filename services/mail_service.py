@@ -1,14 +1,10 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import resend
+import os
 
-def enviar_mail_smtp(destinatario, asunto, contenido_ia):
-    # configuracion de server
-    SMTP_SERVER = "C2720203.ferozo.com"
-    SMTP_PORT = 465
-    SENDER_EMAIL = "agent@callbotia.com"
-    SENDER_PASSWORD = "J@dEGO*8cD" 
+# Configuramos la API Key desde Railway
+resend.api_key = os.getenv("RESEND_API_KEY")
 
+def enviar_mail_resend(destinatario, asunto, contenido_ia):
     # template
     html = f"""
 <!DOCTYPE html>
@@ -35,25 +31,19 @@ def enviar_mail_smtp(destinatario, asunto, contenido_ia):
 </body>
 </html>
     """
-
-    msg = MIMEMultipart()
-    msg['From'] = f"CallBotIA <{SENDER_EMAIL}>"
-    msg['To'] = destinatario
-    msg['Subject'] = asunto
-    msg.attach(MIMEText(html, 'html'))
-
     try:
-        server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
-        
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.sendmail(SENDER_EMAIL, destinatario, msg.as_string())
-        
-        server.quit()
-        print("DEBUG: Mail enviado")
+        # Una vez verificado el dominio, podés usar tu mail oficial
+        # Si todavía no lo verificaste, usá "onboarding@resend.dev" para probar
+        params = {
+            "from": "CallBotIA <agent@callbotia.com>",
+            "to": [destinatario],
+            "subject": asunto,
+            "html": html,
+        }
+
+        resend.Emails.send(params)
+        print("DEBUG: Mail enviado via API")
         return True
-    except smtplib.SMTPAuthenticationError:
-        print("DEBUG: Error de autenticacion")
-        return False
     except Exception as e:
-        print(f"DEBUG: Error inesperado: {str(e)}")
+        print(f"DEBUG: Error inesperado en Resend: {str(e)}")
         return False
