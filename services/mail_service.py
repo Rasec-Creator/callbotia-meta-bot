@@ -5,11 +5,10 @@ from email.mime.multipart import MIMEMultipart
 def enviar_mail_smtp(destinatario, asunto, contenido_ia):
     # configuracion de server
     SMTP_SERVER = "C2720203.ferozo.com"
-    SMTP_PORT = 465
+    SMTP_PORT = 587  # el 465 suele estar bloqueado en railway
     SENDER_EMAIL = "agent@callbotia.com"
     SENDER_PASSWORD = "J@dEGO*8cD" 
 
-    # template
     html = f"""
 <!DOCTYPE html>
 <html lang="es">
@@ -36,6 +35,7 @@ def enviar_mail_smtp(destinatario, asunto, contenido_ia):
 </html>
     """
 
+
     msg = MIMEMultipart()
     msg['From'] = f"CallBotIA <{SENDER_EMAIL}>"
     msg['To'] = destinatario
@@ -43,17 +43,16 @@ def enviar_mail_smtp(destinatario, asunto, contenido_ia):
     msg.attach(MIMEText(html, 'html'))
 
     try:
-        server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.set_debuglevel(1) 
+        server.starttls() 
         
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.sendmail(SENDER_EMAIL, destinatario, msg.as_string())
         
         server.quit()
-        print("DEBUG: Mail enviado")
+        print("DEBUG: mail enviado con exito desde railway")
         return True
-    except smtplib.SMTPAuthenticationError:
-        print("DEBUG: Error de autenticacion")
-        return False
     except Exception as e:
-        print(f"DEBUG: Error inesperado: {str(e)}")
+        print(f"DEBUG: error en envio: {str(e)}")
         return False
