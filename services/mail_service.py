@@ -5,7 +5,7 @@ from email.mime.multipart import MIMEMultipart
 def enviar_mail_smtp(destinatario, asunto, contenido_ia):
     # configuracion de server
     SMTP_SERVER = "C2720203.ferozo.com"
-    SMTP_PORT = 587  # el 465 suele estar bloqueado en railway
+    SMTP_PORT = 2525
     SENDER_EMAIL = "agent@callbotia.com"
     SENDER_PASSWORD = "J@dEGO*8cD" 
 
@@ -51,7 +51,7 @@ def enviar_mail_smtp(destinatario, asunto, contenido_ia):
         server.sendmail(SENDER_EMAIL, destinatario, msg.as_string())
         
         server.quit()
-        print("DEBUG: mail enviado con exito desde railway")
+        print("DEBUG: mail enviado con exito")
         return True
     except Exception as e:
         print(f"DEBUG: error en envio: {str(e)}")
