@@ -4,7 +4,8 @@ from openai import OpenAI
 from services.whatsapp_service import enviar_mensaje, enviar_botones_dinamicos
 from services.calendar_service import agendar_reunion
 from services.mail_service import enviar_mail_resend
-
+import logging
+logger = logging.getLogger("KatIA")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 PROMPT_ID = os.getenv("PROMPT_ID")
 locks = {}
@@ -32,7 +33,7 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
                 )
                 input_ia = f"\n{res_v.message.content}]\n Caption: {texto}"
             except Exception as e:
-                print(f"error vision: {e}")
+                logger.info(f"error vision: {e}")
                 input_ia = f"\n[IMAGEN NO PROCESADA]\n Caption: {texto}"
 
         try:
@@ -63,7 +64,7 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
                 
             return texto_final
         except Exception as e:
-            print(f"error openai: {e}")
+            logger.info(f"error openai: {e}")
             return None
 
 def ejecutar_herramienta(phone_id,item, phone):

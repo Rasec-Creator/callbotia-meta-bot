@@ -1,6 +1,8 @@
 import resend
 import os
+import logging
 
+logger = logging.getLogger("KatIA")
 # Configuramos la API Key desde Railway
 resend.api_key = os.getenv("RESEND_API_KEY")
 
@@ -42,8 +44,8 @@ def enviar_mail_resend(destinatario, asunto, contenido_ia):
         }
 
         resend.Emails.send(params)
-        print("DEBUG: Mail enviado exitosamente a", destinatario)
+        logger.info("DEBUG: Mail enviado exitosamente a", destinatario)
         return True
     except Exception as e:
-        print(f"DEBUG: Error inesperado en Resend: {str(e)}")
+        logger.info(f"DEBUG: Error inesperado en Resend: {str(e)}")
         return False

@@ -4,7 +4,9 @@ import os
 from dotenv import load_dotenv 
 import requests
 from openai import OpenAI
+import logging
 
+logger = logging.getLogger("KatIA")
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
@@ -57,7 +59,7 @@ def enviar_botones_bienvenida(phone_id,to, nombre_usuario):
     try:
         requests.post(url, headers=headers, json=data)
     except Exception as e:
-        print(f"Error en la bienvenida: {e}")
+        logger.info(f"Error en la bienvenida: {e}")
 
 def enviar_botones_dinamicos(phone_id,to, texto, lista_botones):
     url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
@@ -98,7 +100,7 @@ def enviar_botones_dinamicos(phone_id,to, texto, lista_botones):
     response = requests.post(url, headers=headers, json=data)
     res_json = response.json()
     if response.status_code != 200:
-        print(f"ERROR META: {res_json}")
+        logger.info(f"ERROR META: {res_json}")
         
     return res_json
 
@@ -122,7 +124,7 @@ def transcribir_audio(url):
         # bajamos el archivo de meta
         response = requests.get(url, headers=headers)
         if response.status_code != 200:
-            print(f"ERROR DESCARGA: {response.status_code}")
+            logger.info(f"ERROR DESCARGA: {response.status_code}")
             return None
 
         # guardamos
@@ -142,7 +144,7 @@ def transcribir_audio(url):
         return transcription.text
 
     except Exception as e:
-        print(f"ERROR EN TRANSCRIPCION: {e}")
+        logger.info(f"ERROR EN TRANSCRIPCION: {e}")
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
         return None

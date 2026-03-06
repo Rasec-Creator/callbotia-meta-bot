@@ -1,6 +1,8 @@
 from database import if_primer_contacto, create_or_update_conv
 from services.whatsapp_service import enviar_botones_bienvenida, enviar_mensaje, obtener_media_url, descargar_y_codificar, transcribir_audio
 from ia_logic import consultar_ia, client
+import logging 
+logger = logging.getLogger("KatIA")
 
 def procesar_seguro(phone_id,to, nombre_wa, texto, boton_id, media_id, tipo):
     try:
@@ -26,7 +28,7 @@ def procesar_seguro(phone_id,to, nombre_wa, texto, boton_id, media_id, tipo):
         res_ia = consultar_ia(phone_id,input_ia, c_id, to, img_b64)
         if res_ia: enviar_mensaje(phone_id,to, res_ia)
     except Exception as e:
-        print(f"error hilo: {e}")
+        logger.info(f"error hilo: {e}")
 
 def extraer_contenido(mensaje):
     txt, b_id, m_id, tipo = "", None, None, mensaje.get('type')

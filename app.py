@@ -3,19 +3,34 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
-from database import init_db, get_db_connection, check_if_processed
-from bot_logic import procesar_seguro, extraer_contenido
-from ia_logic import locks
+import logging 
 
 load_dotenv()
 app = Flask(__name__)
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
+# pool de hilos
+executor = ThreadPoolExecutor(max_workers=10)
+
+#logging
+log_filename = "app.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_filename), # Guarda en archivo
+        logging.StreamHandler()            # También muestra en consola de Railway
+    ]
+)
+logger = logging.getLogger("KatIA")
+
+from database import init_db, get_db_connection, check_if_processed
+from bot_logic import procesar_seguro, extraer_contenido
+from ia_logic import locks
+
 # inicializacion db
 threading.Thread(target=init_db).start()
 
-# pool de hilos
-executor = ThreadPoolExecutor(max_workers=10)
 
 def limpiar_locks_viejos():
     while True:
@@ -25,7 +40,7 @@ def limpiar_locks_viejos():
             if ahora - locks[phone]['last_seen'] > 3600:
                 if not locks[phone]['lock'].locked():
                     del locks[phone]
-                    print(f"limpieza: lock eliminado para {phone}")
+                    logger.info(f"limpieza: lock eliminado para {phone}")
 
 threading.Thread(target=limpiar_locks_viejos, daemon=True).start()
 
@@ -181,6 +196,37 @@ def eliminar(id):
     conn.commit()
     conn.close()
     return "<script>window.location.href='/dashboard';</script>"
+
+@app.route('/log')
+@login_requerido
+def ver_logs():
+    try:
+        with open("app.log", "r") as f:
+            # Leemos 100 lineas
+            lineas = f.readlines()
+            logs_finales = "".join(lineas[-100:]) 
+            
+        return f"""
+        <html>
+            <head>
+                <title>Logs Kat-IA</title>
+                <style>
+                    body {{ background: #1e1e1e; color: #d4d4d4; font-family: monospace; padding: 20px; }}
+                    pre {{ white-space: pre-wrap; word-wrap: break-word; }}
+                    .info {{ color: #4fc1ff; }}
+                    .error {{ color: #f44747; }}
+                </style>
+            </head>
+            <body>
+                <h2>📜 Logs del Servidor</h2>
+                <hr>
+                <pre>{logs_finales}</pre>
+                <script>window.scrollTo(0,document.body.scrollHeight);</script>
+            </body>
+        </html>
+        """
+    except FileNotFoundError:
+        return "El archivo de log todavía no se creó.", 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))

@@ -2,14 +2,16 @@ import os
 import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+import logging
 
+logger = logging.getLogger("KatIA")
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def agendar_reunion(fecha_iso, nombre_cliente, telefono):
     try:
         ruta_key = 'google_key.json'
         if not os.path.exists(ruta_key):
-            print(f"ERROR: No se encontró el archivo {ruta_key}")
+            logger.info(f"ERROR: No se encontró el archivo {ruta_key}")
             return {"error": "Archivo de credenciales no encontrado"}
 
         MEET_LINK = "https://meet.google.com/mmn-munx-pts"
@@ -37,5 +39,5 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono):
         }
 
     except Exception as e:
-        print(f" ERROR CRÍTICO EN CALENDAR: {str(e)}")
+        logger.info(f" ERROR CRÍTICO EN CALENDAR: {str(e)}")
         return {"status": "error", "message": str(e)}
