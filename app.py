@@ -40,7 +40,6 @@ def recibir_mensajes():
 
     # CAPTURAMOS EL ID DEL TELÉFONO QUE RECIBIÓ EL MENSAJE
     phone_id_receptor = v.get('metadata', {}).get('phone_number_id')
-    print(f"DEBUG: Mensaje recibido en phone_id {phone_id_receptor}")
 
     msg = v['messages'][0]
     if check_if_processed(msg.get('id')): 
