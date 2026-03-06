@@ -49,7 +49,7 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
             for item in response.output:
                 if item.type == 'function_call':
                     res_t, msg_u = ejecutar_herramienta(phone_id,item, phone)
-                    if msg_u: enviar_mensaje(phone, msg_u)
+                    if msg_u: enviar_mensaje(phone_id,phone, msg_u)
                     outputs_pendientes.append({
                         "type": "function_call_output",
                         "call_id": getattr(item, 'call_id', None),
