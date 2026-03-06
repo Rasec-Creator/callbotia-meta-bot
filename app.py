@@ -31,19 +31,32 @@ threading.Thread(target=limpiar_locks_viejos, daemon=True).start()
 
 @app.route('/webhook', methods=['POST'])
 def recibir_mensajes():
-    v = request.get_json().get('entry', [{}])[0].get('changes', [{}])[0].get('value', {})
-    if 'messages' not in v: return jsonify({"status": "ignored"}), 200
+    entry = request.get_json().get('entry', [{}])[0]
+    changes = entry.get('changes', [{}])[0]
+    v = changes.get('value', {})
+    
+    if 'messages' not in v: 
+        return jsonify({"status": "ignored"}), 200
+
+    # CAPTURAMOS EL ID DEL TELÉFONO QUE RECIBIÓ EL MENSAJE
+    phone_id_receptor = v.get('metadata', {}).get('phone_number_id')
+    print(f"DEBUG: Mensaje recibido en phone_id {phone_id_receptor}")
 
     msg = v['messages'][0]
-    if check_if_processed(msg.get('id')): return jsonify({"status": "skipped"}), 200
+    if check_if_processed(msg.get('id')): 
+        return jsonify({"status": "skipped"}), 200
 
     contacto = v.get('contacts', [{}])[0]
     nombre = contacto.get('profile', {}).get('name', 'Usuario')
     num = msg['from']
     
     txt, b_id, m_id, tipo = extraer_contenido(msg)
-    executor.submit(procesar_seguro, num, nombre, txt, b_id, m_id, tipo)
+
+    # PASAMOS EL phone_id_receptor A PROCESAR_SEGURO
+    executor.submit(procesar_seguro, phone_id_receptor, num, nombre, txt, b_id, m_id, tipo)
+    
     return jsonify({"status": "received"}), 200
+
 
 @app.route('/webhook', methods=['GET'])
 def verificar():

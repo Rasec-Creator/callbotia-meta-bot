@@ -9,7 +9,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 PROMPT_ID = os.getenv("PROMPT_ID")
 locks = {}
 
-def consultar_ia(texto, conv_id, phone, imagen_b64=None):
+def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
     if phone not in locks:
         locks[phone] = {"lock": Lock(), "last_seen": time.time()}
     locks[phone]['last_seen'] = time.time()
@@ -48,7 +48,7 @@ def consultar_ia(texto, conv_id, phone, imagen_b64=None):
 
             for item in response.output:
                 if item.type == 'function_call':
-                    res_t, msg_u = ejecutar_herramienta(item, phone)
+                    res_t, msg_u = ejecutar_herramienta(phone_id,item, phone)
                     if msg_u: enviar_mensaje(phone, msg_u)
                     outputs_pendientes.append({
                         "type": "function_call_output",
@@ -66,12 +66,12 @@ def consultar_ia(texto, conv_id, phone, imagen_b64=None):
             print(f"error openai: {e}")
             return None
 
-def ejecutar_herramienta(item, phone):
+def ejecutar_herramienta(phone_id,item, phone):
     args = json.loads(item.arguments)
     n = item.name
     
     if n == 'mostrar_menu_botones':
-        enviar_botones_dinamicos(phone, args['texto_cuerpo'], args['botones'])
+        enviar_botones_dinamicos(phone_id,phone, args['texto_cuerpo'], args['botones'])
         return {"status": "ok"}, None
         
     elif n == 'agendar_reunion':

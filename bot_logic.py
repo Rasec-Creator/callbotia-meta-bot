@@ -2,13 +2,13 @@ from database import if_primer_contacto, create_or_update_conv
 from services.whatsapp_service import enviar_botones_bienvenida, enviar_mensaje, obtener_media_url, descargar_y_codificar, transcribir_audio
 from ia_logic import consultar_ia, client
 
-def procesar_seguro(to, nombre_wa, texto, boton_id, media_id, tipo):
+def procesar_seguro(phone_id,to, nombre_wa, texto, boton_id, media_id, tipo):
     try:
         nuevo = if_primer_contacto(to)
         c_id = create_or_update_conv(to, nombre_wa, texto, client)
         
         if nuevo:
-            enviar_botones_bienvenida(to, nombre_wa)
+            enviar_botones_bienvenida(phone_id,to, nombre_wa)
             return
 
         img_b64 = None
@@ -23,8 +23,8 @@ def procesar_seguro(to, nombre_wa, texto, boton_id, media_id, tipo):
         if boton_id == "btn_si": input_ia = "SISTEMA: usuario acepto botones. ejecutar mostrar_menu_botones."
         elif boton_id == "btn_no": input_ia = "SISTEMA: usuario prefirio chat de texto."
 
-        res_ia = consultar_ia(input_ia, c_id, to, img_b64)
-        if res_ia: enviar_mensaje(to, res_ia)
+        res_ia = consultar_ia(phone_id,input_ia, c_id, to, img_b64)
+        if res_ia: enviar_mensaje(phone_id,to, res_ia)
     except Exception as e:
         print(f"error hilo: {e}")
 

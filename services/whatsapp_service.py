@@ -7,12 +7,11 @@ from openai import OpenAI
 
 load_dotenv()
 
-PHONE_ID = os.getenv("PHONE_ID")
 TOKEN = os.getenv("TOKEN")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def enviar_mensaje(to, text):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_ID}/messages"
+def enviar_mensaje(phone_id,to, text):
+    url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     data = {
         "messaging_product": "whatsapp",
@@ -23,8 +22,8 @@ def enviar_mensaje(to, text):
     response = requests.post(url, headers=headers, json=data)
     return response.json()
 
-def enviar_botones_bienvenida(to, nombre_usuario):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_ID}/messages"
+def enviar_botones_bienvenida(phone_id,to, nombre_usuario):
+    url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     data = {
         "messaging_product": "whatsapp",
@@ -60,8 +59,8 @@ def enviar_botones_bienvenida(to, nombre_usuario):
     except Exception as e:
         print(f"Error en la bienvenida: {e}")
 
-def enviar_botones_dinamicos(to, texto, lista_botones):
-    url = f"https://graph.facebook.com/v18.0/{PHONE_ID}/messages"
+def enviar_botones_dinamicos(phone_id,to, texto, lista_botones):
+    url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     
     botones_formateados = []
