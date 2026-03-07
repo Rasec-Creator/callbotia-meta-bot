@@ -1,21 +1,34 @@
 import os, mysql.connector
 import re
-from mysql.connector import Error
+from mysql.connector import Error, pooling
+import time
+
+# Creamos pool globalmente
+try:
+    db_pool = mysql.connector.pooling.MySQLConnectionPool(
+        pool_name="katia_pool",
+        pool_size=5, # Mantiene hasta 5 conexiones listas
+        pool_reset_session=True,
+        host=os.getenv("MYSQLHOST"),
+        user=os.getenv("MYSQLUSER"),
+        password=os.getenv("MYSQLPASSWORD"),
+        database=os.getenv("MYSQLDATABASE"),
+        port=int(os.getenv("MYSQLPORT", 3306)),
+        connect_timeout=10
+    )
+except Error as e:
+    print(f"Error al inicializar el pool: {e}")
+    db_pool = None
 
 def get_db_connection():
-    # conexion a mysql con variables de entorno
-    try:
-        return mysql.connector.connect(
-            host=os.getenv("MYSQLHOST"),
-            user=os.getenv("MYSQLUSER"),
-            password=os.getenv("MYSQLPASSWORD"),
-            database=os.getenv("MYSQLDATABASE"),
-            port=int(os.getenv("MYSQLPORT", 3306)),
-            connect_timeout=10
-        )
-    except Error as e:
-        print(f"error mysql connection: {e}")
+    if not db_pool:
         return None
+    try:
+        return db_pool.get_connection()
+    except Error as e:
+        print(f"error mysql pool: {e}")
+        return None
+    
 
 def init_db():
     # creacion de tablas si no existen
@@ -51,24 +64,28 @@ def init_db():
         conn.close()
 
 def check_if_processed(msg_id):
-    # evita procesar el mismo mensaje dos veces y limpia viejos
-    conn = get_db_connection()
-    if not conn: return False
-    try:
-        cur = conn.cursor()
+    reintentos = 3
+    for i in range(reintentos):
+        conn = get_db_connection()
+        if conn:
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM mensajes_procesados WHERE fecha_recepcion < NOW() - INTERVAL 1 HOUR")
+                cur.execute("INSERT INTO mensajes_procesados (msg_id) VALUES (%s)", (msg_id,))
+                conn.commit()
+                return False 
+            except Error as e:
+                if e.errno == 1062: # Duplicate entry (ya procesado)
+                    return True
+                print(f"Error en query (intento {i+1}): {e}")
+            finally:
+                cur.close()
+                conn.close() # Devuelve la conexión al pool
         
-        # limpieza ids de mas de 1 hora antes de chequear
-        cur.execute("DELETE FROM mensajes_procesados WHERE fecha_recepcion < NOW() - INTERVAL 1 HOUR")
-        
-        # intentar insertar el nuevo id
-        cur.execute("INSERT INTO mensajes_procesados (msg_id) VALUES (%s)", (msg_id,))
-        conn.commit()
-        return False 
-    except Error:
-        return True # si falla es porque ya existe
-    finally:
-        cur.close()
-        conn.close()
+        print(f"DB dormida, reintentando en 2 segundos... ({i+1}/{reintentos})")
+        time.sleep(2) # Esperamos a que Railway despierte la DB
+    
+    return False # Si falló todo, dejamos pasar el mensaje por las dudas
 
 def extraer_email(texto):
     # busca un patron basico de email en el texto
