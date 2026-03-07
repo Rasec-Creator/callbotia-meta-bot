@@ -14,7 +14,7 @@ try:
         password=os.getenv("MYSQLPASSWORD"),
         database=os.getenv("MYSQLDATABASE"),
         port=int(os.getenv("MYSQLPORT", 3306)),
-        connect_timeout=10
+        connect_timeout=20
     )
 except Error as e:
     print(f"Error al inicializar el pool: {e}")
