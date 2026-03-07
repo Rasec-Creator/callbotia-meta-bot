@@ -31,7 +31,8 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
                         ]
                     }]
                 )
-                input_ia = f"\n{res_v.message.content}]\n Caption: {texto}"
+                descripcion = res_v.choices[0].message.content
+                input_ia = f"\n[EL USUARIO ENVIÓ UNA IMAGEN: {descripcion}]\n Caption: {texto}"
             except Exception as e:
                 logger.info(f"error vision: {e}")
                 input_ia = f"\n[IMAGEN NO PROCESADA]\n Caption: {texto}"
