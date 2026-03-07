@@ -3,40 +3,49 @@ import re
 from mysql.connector import Error, pooling
 import time
 
-# Creamos pool globalmente
-try:
-    db_pool = mysql.connector.pooling.MySQLConnectionPool(
-        pool_name="katia_pool",
-        pool_size=5, # Mantiene hasta 5 conexiones listas
-        pool_reset_session=True,
-        host=os.getenv("MYSQLHOST"),
-        user=os.getenv("MYSQLUSER"),
-        password=os.getenv("MYSQLPASSWORD"),
-        database=os.getenv("MYSQLDATABASE"),
-        port=int(os.getenv("MYSQLPORT", 3306)),
-        connect_timeout=20
-    )
-except Error as e:
-    print(f"Error al inicializar el pool: {e}")
-    db_pool = None
+# Dejamos el pool como None al inicio para que no explote al bootear el worker
+db_pool = None
+
+def crear_pool():
+    """Intenta inicializar el pool de conexiones."""
+    global db_pool
+    try:
+        db_pool = mysql.connector.pooling.MySQLConnectionPool(
+            pool_name="katia_pool",
+            pool_size=5,
+            pool_reset_session=True,
+            host=os.getenv("MYSQLHOST"),
+            user=os.getenv("MYSQLUSER"),
+            password=os.getenv("MYSQLPASSWORD"),
+            database=os.getenv("MYSQLDATABASE"),
+            port=int(os.getenv("MYSQLPORT", 3306)),
+            connect_timeout=20  # Tiempo suficiente para que Railway despierte la DB
+        )
+        return True
+    except Error as e:
+        print(f"Aun no hay conexion con MySQL: {e}")
+        return False
 
 def get_db_connection():
-    if not db_pool:
-        return None
+    """Obtiene una conexion del pool, creandolo si no existe."""
+    global db_pool
+    if db_pool is None:
+        if not crear_pool():
+            return None
     try:
         return db_pool.get_connection()
     except Error as e:
         print(f"error mysql pool: {e}")
+        # Si falla la conexion, reseteamos el pool para forzar re-creacion en el proximo intento
+        db_pool = None
         return None
-    
 
 def init_db():
-    # creacion de tablas si no existen
+    """Inicializa las tablas necesarias."""
     conn = get_db_connection()
     if not conn: return
     try:
         cur = conn.cursor()
-        # tabla de leads
         cur.execute('''
             CREATE TABLE IF NOT EXISTS leads (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -49,7 +58,6 @@ def init_db():
                 fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
-        # tabla de de-duplicacion
         cur.execute('''
             CREATE TABLE IF NOT EXISTS mensajes_procesados (
                 msg_id VARCHAR(255) PRIMARY KEY,
@@ -60,11 +68,12 @@ def init_db():
     except Error as e:
         print(f"error init_db: {e}")
     finally:
-        cur.close()
+        if 'cur' in locals(): cur.close()
         conn.close()
 
 def check_if_processed(msg_id):
-    reintentos = 3
+    """Evita duplicados con sistema de reintentos robusto."""
+    reintentos = 5 # Subimos a 5 para mayor seguridad
     for i in range(reintentos):
         conn = get_db_connection()
         if conn:
@@ -75,31 +84,28 @@ def check_if_processed(msg_id):
                 conn.commit()
                 return False 
             except Error as e:
-                if e.errno == 1062: # Duplicate entry (ya procesado)
+                if e.errno == 1062: # Duplicate entry
                     return True
                 print(f"Error en query (intento {i+1}): {e}")
             finally:
-                cur.close()
-                conn.close() # Devuelve la conexión al pool
+                if 'cur' in locals(): cur.close()
+                conn.close()
         
         print(f"DB dormida, reintentando en 2 segundos... ({i+1}/{reintentos})")
-        time.sleep(2) # Esperamos a que Railway despierte la DB
-    
-    return False # Si falló todo, dejamos pasar el mensaje por las dudas
+        time.sleep(2)
+    return False
 
 def extraer_email(texto):
-    # busca un patron basico de email en el texto
     patron = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
     resultado = re.search(patron, texto)
     return resultado.group(0) if resultado else None
 
 def create_or_update_conv(phone, nombre, texto, client_openai):
-    # gestiona la conversacion de openai vinculada al lead
     conn = get_db_connection()
     if not conn: return None
     try:
         cur = conn.cursor(dictionary=True)
-        mail_detectado = extraer_email(texto)# intentamos extraer un mail del texto
+        mail_detectado = extraer_email(texto)
         cur.execute("SELECT conversation_id FROM leads WHERE telefono = %s", (phone,))
         res = cur.fetchone()
         
@@ -110,7 +116,7 @@ def create_or_update_conv(phone, nombre, texto, client_openai):
                            (texto, mail_detectado, phone))
             else:
                 cur.execute("UPDATE leads SET ultimo_mensaje = %s WHERE telefono = %s", (texto, phone))
-        else:# creamos el registro
+        else:
             c_id = client_openai.conversations.create().id
             cur.execute("""
                 INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje, email) 
@@ -123,11 +129,10 @@ def create_or_update_conv(phone, nombre, texto, client_openai):
         print(f"error conv_db: {e}")
         return None
     finally:
-        cur.close()
+        if 'cur' in locals(): cur.close()
         conn.close()
 
 def if_primer_contacto(phone):
-    # verifica si es la primera vez que escribe
     conn = get_db_connection()
     if not conn: return False
     try:
@@ -137,5 +142,5 @@ def if_primer_contacto(phone):
     except Error:
         return False
     finally:
-        cur.close()
+        if 'cur' in locals(): cur.close()
         conn.close()
