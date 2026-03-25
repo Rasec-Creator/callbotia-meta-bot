@@ -10,9 +10,11 @@ logger = logging.getLogger("KatIA")
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
+TOKENes = os.getenv("TOKEN_ES")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def enviar_mensaje(phone_id,to, text):
+    print(phone_id)
     url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     data = {
