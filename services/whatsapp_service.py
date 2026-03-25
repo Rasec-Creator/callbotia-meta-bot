@@ -15,7 +15,6 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def enviar_mensaje(phone_id,to, text):
     token_a_usar = obtener_token_por_phone_id(phone_id)
-    print(phone_id)
     url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
     headers = {"Authorization": f"Bearer {token_a_usar}", "Content-Type": "application/json"}
     data = {
