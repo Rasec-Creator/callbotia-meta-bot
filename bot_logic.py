@@ -17,9 +17,9 @@ def procesar_seguro(phone_id,to, nombre_wa, texto, boton_id, media_id, tipo):
         input_ia = f"{nombre_wa}: {texto}"
 
         if tipo == 'image' and media_id:
-            img_b64 = descargar_y_codificar(obtener_media_url(media_id))
+            img_b64 = descargar_y_codificar(obtener_media_url(media_id,phone_id),phone_id)
         elif tipo == 'audio' and media_id:
-            t_audio = transcribir_audio(obtener_media_url(media_id))
+            t_audio = transcribir_audio(obtener_media_url(media_id,phone_id),phone_id)
             if t_audio: input_ia = f"{nombre_wa} (audio): {t_audio}"
 
         if boton_id == "btn_si": input_ia = "SISTEMA: usuario acepto botones. ejecutar mostrar_menu_botones."

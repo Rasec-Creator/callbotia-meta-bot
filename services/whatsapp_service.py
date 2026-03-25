@@ -9,14 +9,15 @@ import logging
 logger = logging.getLogger("KatIA")
 load_dotenv()
 
-TOKEN = os.getenv("TOKEN")
+TOKENar = os.getenv("TOKEN_AR")
 TOKENes = os.getenv("TOKEN_ES")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def enviar_mensaje(phone_id,to, text):
+    token_a_usar = obtener_token_por_phone_id(phone_id)
     print(phone_id)
     url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
-    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {token_a_usar}", "Content-Type": "application/json"}
     data = {
         "messaging_product": "whatsapp",
         "to": to,
@@ -27,8 +28,9 @@ def enviar_mensaje(phone_id,to, text):
     return response.json()
 
 def enviar_botones_bienvenida(phone_id,to, nombre_usuario):
+    token_a_usar = obtener_token_por_phone_id(phone_id)
     url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
-    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {token_a_usar}", "Content-Type": "application/json"}
     data = {
         "messaging_product": "whatsapp",
         "to": to,
@@ -64,8 +66,9 @@ def enviar_botones_bienvenida(phone_id,to, nombre_usuario):
         logger.info(f"Error en la bienvenida: {e}")
 
 def enviar_botones_dinamicos(phone_id,to, texto, lista_botones):
+    token_a_usar = obtener_token_por_phone_id(phone_id)
     url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
-    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {token_a_usar}", "Content-Type": "application/json"}
     
     botones_formateados = []
     
@@ -106,21 +109,24 @@ def enviar_botones_dinamicos(phone_id,to, texto, lista_botones):
         
     return res_json
 
-def obtener_media_url(media_id):
+def obtener_media_url(media_id,phone_id):
+    token_a_usar = obtener_token_por_phone_id(phone_id)
     url = f"https://graph.facebook.com/v18.0/{media_id}"
-    headers = {"Authorization": f"Bearer {os.getenv('TOKEN')}"}
+    headers = {"Authorization": f"Bearer {token_a_usar}"}
     res = requests.get(url, headers=headers)
     return res.json().get('url')
 
-def descargar_y_codificar(url):
-    headers = {"Authorization": f"Bearer {os.getenv('TOKEN')}"}
+def descargar_y_codificar(url,phone_id):
+    token_a_usar = obtener_token_por_phone_id(phone_id)
+    headers = {"Authorization": f"Bearer {token_a_usar}"}
     img_res = requests.get(url, headers=headers)
     # La pasamos a base64 para que OpenAI la reciba 
     return base64.b64encode(img_res.content).decode('utf-8')
 
 # descarga un audio de la URL de Meta y lo transcribe con Whisper.
-def transcribir_audio(url):
-    headers = {"Authorization": f"Bearer {os.getenv('TOKEN')}"}
+def transcribir_audio(url,phone_id):
+    token_a_usar = obtener_token_por_phone_id(phone_id)
+    headers = {"Authorization": f"Bearer {token_a_usar}"}
     temp_filename = "temp_audio.ogg"
     try:
         # bajamos el archivo de meta
@@ -150,3 +156,17 @@ def transcribir_audio(url):
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
         return None
+    
+def obtener_token_por_phone_id(phone_id):
+    # IDs de Argentina / Global
+    ids_argentina = ["918005154740840", "1027702013752458"] # 11 2049-5801 // 2346 45-4493
+    # ID de España
+    id_espana = "635147226357107" # +34 608 33 27 73
+
+    if str(phone_id) == id_espana:
+        return TOKENes
+    elif str(phone_id) in ids_argentina:
+        return TOKENar
+    else:
+        # Por defecto usamos el TOKEN estándar si no coincide ninguno
+        return TOKENar
