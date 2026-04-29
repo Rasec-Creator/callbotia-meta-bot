@@ -11,6 +11,7 @@ load_dotenv()
 TOKENeu = os.getenv("TOKEN_EU")
 TOKENar = os.getenv("TOKEN_AR")
 TOKENes = os.getenv("TOKEN_ES")
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def enviar_mensaje(phone_id,to, text):
