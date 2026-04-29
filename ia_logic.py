@@ -11,6 +11,7 @@ PROMPT_ID = os.getenv("PROMPT_ID")
 locks = {}
 
 def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
+    print("consultar_ia", phone_id, texto, conv_id, phone, imagen_b64 is not None)
     if phone not in locks:
         locks[phone] = {"lock": Lock(), "last_seen": time.time()}
     locks[phone]['last_seen'] = time.time()
