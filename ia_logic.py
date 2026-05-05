@@ -5,6 +5,10 @@ from services.whatsapp_service import enviar_mensaje, enviar_botones_dinamicos
 from services.calendar_service import agendar_reunion
 from services.mail_service import enviar_mail_resend
 import logging
+import requests
+import datetime
+import json
+
 logger = logging.getLogger("KatIA")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 PROMPT_ID = os.getenv("PROMPT_ID")
@@ -69,29 +73,55 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
             logger.info(f"error openai: {e}")
             return None
 
-def ejecutar_herramienta(phone_id,item, phone):
+def ejecutar_herramienta(phone_id, item, phone):
     args = json.loads(item.arguments)
     n = item.name
     
-    if n == 'mostrar_menu_botones':
-        enviar_botones_dinamicos(phone_id,phone, args['texto_cuerpo'], args['botones'])
-        return {"status": "ok"}, None
-        
-    elif n == 'agendar_reunion':
-        res = agendar_reunion(args['fecha_hora'], args['nombre_cliente'], phone)
-        if res.get("status") == "success":
+    match n:
+        case 'mostrar_menu_botones':
+            enviar_botones_dinamicos(phone_id, phone, args['texto_cuerpo'], args['botones'])
+            return {"status": "ok"}, None
+            
+        case 'agendar_reunion':
+            payload = {
+                "nombre": args.get('nombre'),
+                "email": args.get('email'),
+                "fecha_hora": args.get('fecha_hora'),
+                "resumen": args.get('resumen', 'consulta desde chatbot'),
+                "tipo": "callbotia"
+            }
+            
             try:
-                dt_i = datetime.datetime.fromisoformat(res['inicio'])
-                dt_f = datetime.datetime.fromisoformat(res['fin'])
-                rango = f"{dt_i.strftime('%d/%m/%Y')} de {dt_i.strftime('%H:%M')} a {dt_f.strftime('%H:%M')} hs"
-            except: rango = res['inicio']
-            msg = f"✅ ¡Reunion confirmada, {res['cliente']}!\n\n📅 *Fecha:* {rango}\n🔗 *Link:* {res['meet_link']}\n\n¡Te espero! 🚀"
-            return res, msg
-        return res, f"error al agendar: {res.get('message')}"
+                r = requests.post("https://callbotia.site/reuniones/agendar.php", json=payload, timeout=10)
+                res = r.json()
+                
+                if res.get("status") == "success":
+                    link_meet = res.get('meet_link', 'vincule el link manualmente')
+                    fecha_raw = res.get('fecha_confirmada', args['fecha_hora'])
+                    
+                    try:
+                        dt = datetime.datetime.fromisoformat(fecha_raw)
+                        fecha_linda = dt.strftime('%d/%m/%Y a las %H:%M')
+                    except:
+                        fecha_linda = fecha_raw
+                    
+                    msg = (f"✅ ¡Reunion confirmada, {args.get('nombre', 'cliente')}!\n\n"
+                           f"📅 *Fecha:* {fecha_linda} hs\n"
+                           f"🔗 *Link:* {link_meet}\n\n"
+                           "Te enviamos un mail con los detalles. ¡nos vemos! 🚀")
+                    
+                    return res, msg
+                
+                # manejo de errores (horario ocupado, fin de semana..)
+                return res, f"no pude agendar: {res.get('message')}"
+                
+            except Exception as e:
+                return {"status": "error"}, f"hubo un problema con el servidor de agenda: {str(e)}"
 
-    elif n == 'enviar_email':
-        if enviar_mail_resend(args['email_destino'], args['asunto'], args['cuerpo']):
-            return {"status": "success"}, f"📩 ¡Listo! Info enviada a *{args['email_destino']}*."
-        return {"status": "error"}, "Fallo el envio del mail. Queres que intente de nuevo o tenes otra consulta?"
+        case 'enviar_email':
+            if enviar_mail_resend(args['email_destino'], args['asunto'], args['cuerpo']):
+                return {"status": "success"}, f"📩 ¡listo! info enviada a *{args['email_destino']}*."
+            return {"status": "error"}, "fallo el envio del mail. ¿queres que intente de nuevo?"
 
-    return {"error": "no encontrada"}, None
+        case _:
+            return {"error": "herramienta no encontrada"}, None
