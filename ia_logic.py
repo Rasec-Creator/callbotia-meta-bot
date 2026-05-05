@@ -90,7 +90,6 @@ def ejecutar_herramienta(phone_id, item, phone):
                 "resumen": args.get('resumen', 'consulta desde chatbot'),
                 "tipo": "callbotia"
             }
-            
             try:
                 r = requests.post("https://callbotia.site/reuniones/agendar.php", json=payload, timeout=10)
                 res = r.json()
