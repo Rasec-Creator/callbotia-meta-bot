@@ -75,6 +75,10 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
 def ejecutar_herramienta(phone_id, item, phone):
     args = json.loads(item.arguments)
     n = item.name
+    headers = {
+        "Content-Type": "application/json",
+        "Referer": "https://callbotia.site" # Debe coincidir con tu whitelist en PHP
+    }
     
     match n:
         case 'mostrar_menu_botones':
@@ -91,7 +95,10 @@ def ejecutar_herramienta(phone_id, item, phone):
                 "origen": "WhatsApp Bot"
             }
             try:
-                r = requests.post("https://callbotia.site/reuniones/webhook.php", json=payload, timeout=10)
+                r = requests.post("https://callbotia.site/reuniones/webhook.php", 
+                    headers=headers, 
+                    timeout=10
+                )
                 res = r.json()
                 if res.get("status") == "success":
                     msg = (f"¡Excelente, {args.get('nombre')}! Ya registré tus datos de **{args.get('empresa')}**. "
@@ -110,7 +117,12 @@ def ejecutar_herramienta(phone_id, item, phone):
                 "tipo": "callbotia"
             }
             try:
-                r = requests.post("https://callbotia.site/reuniones/agendar.php", json=payload, timeout=10)
+                r = requests.post(
+                    "https://callbotia.site/reuniones/agendar.php", 
+                    json=payload, 
+                    headers=headers, 
+                    timeout=10
+                )
                 res = r.json()
                 print("respuesta agenda:", res)
                 if res.get("status") == "success":
