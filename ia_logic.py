@@ -2,7 +2,6 @@ import json, datetime, time, os
 from threading import Lock
 from openai import OpenAI
 from services.whatsapp_service import enviar_mensaje, enviar_botones_dinamicos
-from services.calendar_service import agendar_reunion
 from services.mail_service import enviar_mail_resend
 import logging
 import requests
@@ -81,7 +80,27 @@ def ejecutar_herramienta(phone_id, item, phone):
         case 'mostrar_menu_botones':
             enviar_botones_dinamicos(phone_id, phone, args['texto_cuerpo'], args['botones'])
             return {"status": "ok"}, None
-            
+        case 'guardar_contacto':
+            payload = {
+                "nombre": args.get('nombre'),
+                "email": args.get('email'),
+                "empresa": args.get('empresa'),
+                "puesto": args.get('puesto'),
+                "interes": args.get('interes'),
+                "tipo": "callbotia",
+                "origen": "WhatsApp Bot"
+            }
+            try:
+                r = requests.post("https://callbotia.site/reuniones/webhook.php", json=payload, timeout=10)
+                res = r.json()
+                if res.get("status") == "success":
+                    msg = (f"¡Excelente, {args.get('nombre')}! Ya registré tus datos de **{args.get('empresa')}**. "
+                           "Un asesor se va a estar contactando con vos pronto. ¿Te puedo ayudar con algo más?")
+                    return res, msg
+                return res, f"tuvimos un problema al guardar los datos: {res.get('message')}"
+            except Exception as e:
+                return {"status": "error"}, f"no pude conectar con el servidor de registro: {str(e)}"
+
         case 'agendar_reunion':
             payload = {
                 "nombre": args.get('nombre'),
