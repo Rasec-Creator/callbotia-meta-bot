@@ -112,7 +112,7 @@ def ejecutar_herramienta(phone_id, item, phone):
             try:
                 r = requests.post("https://callbotia.site/reuniones/agendar.php", json=payload, timeout=10)
                 res = r.json()
-                
+                print("respuesta agenda:", res)
                 if res.get("status") == "success":
                     link_meet = res.get('meet_link', 'vincule el link manualmente')
                     fecha_raw = res.get('fecha_confirmada', args['fecha_hora'])
