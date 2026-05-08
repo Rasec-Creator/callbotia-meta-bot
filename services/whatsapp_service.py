@@ -170,7 +170,7 @@ def obtener_token_por_phone_id(phone_id):
     elif str(phone_id) in ids_argentina:
         return TOKENar
     elif str(phone_id) == id_eu: # Reemplaza con el ID real de la UE
-        return s
+        return TOKENeu
     else:
         # Por defecto usamos el TOKEN estándar si no coincide ninguno
         return TOKENar
