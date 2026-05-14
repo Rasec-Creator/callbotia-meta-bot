@@ -1,3 +1,4 @@
+import datetime
 import os, mysql.connector
 import re
 from mysql.connector import Error, pooling
@@ -105,28 +106,35 @@ def create_or_update_conv(phone, nombre, texto, client_openai):
     if not conn: return None
     try:
         cur = conn.cursor(dictionary=True)
-        mail_detectado = extraer_email(texto)
-        cur.execute("SELECT conversation_id FROM leads WHERE telefono = %s", (phone,))
+        # Traemos también la fecha de actualización
+        cur.execute("SELECT conversation_id, fecha_actualizacion FROM leads WHERE telefono = %s", (phone,))
         res = cur.fetchone()
         
+        ahora = datetime.datetime.now()
+        
+        # Si existe pero la última charla fue hace más de 24 horas...
         if res and res['conversation_id']:
-            c_id = res['conversation_id']
-            if mail_detectado:
-                cur.execute("UPDATE leads SET ultimo_mensaje = %s, email = %s WHERE telefono = %s", 
-                           (texto, mail_detectado, phone))
+            ultima_vez = res['fecha_actualizacion']
+            # Calculamos la diferencia
+            if (ahora - ultima_vez).days >= 1:
+                # CREAMOS UN HILO NUEVO para que no arrastre basura vieja
+                c_id = client_openai.conversations.create().id
+                cur.execute("UPDATE leads SET conversation_id = %s, ultimo_mensaje = %s WHERE telefono = %s", 
+                           (c_id, texto, phone))
             else:
+                # Es una charla fluida, seguimos con el mismo ID
+                c_id = res['conversation_id']
                 cur.execute("UPDATE leads SET ultimo_mensaje = %s WHERE telefono = %s", (texto, phone))
         else:
+            # Caso de usuario nuevo
             c_id = client_openai.conversations.create().id
-            cur.execute("""
-                INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje, email) 
-                VALUES (%s, %s, %s, %s, %s)
-            """, (phone, nombre, c_id, texto, mail_detectado))
+            cur.execute("INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje) VALUES (%s, %s, %s, %s)", 
+                       (phone, nombre, c_id, texto))
         
         conn.commit()
         return c_id
-    except Error as e:
-        print(f"error conv_db: {e}")
+    except Exception as e:
+        print(f"Error en gestion de hilos: {e}")
         return None
     finally:
         if 'cur' in locals(): cur.close()
@@ -137,9 +145,22 @@ def if_primer_contacto(phone):
     if not conn: return False
     try:
         cur = conn.cursor()
-        cur.execute("SELECT 1 FROM leads WHERE telefono = %s", (phone,))
-        return cur.fetchone() is None
-    except Error:
+        # Buscamos si el numero existe Y si fue actualizado en las ultimas 24 horas
+        query = """
+            SELECT 1 FROM leads 
+            WHERE telefono = %s 
+            AND fecha_actualizacion > NOW() - INTERVAL 1 DAY
+        """
+        cur.execute(query, (phone,))
+        res = cur.fetchone()
+        
+        # Si res es None, significa que:
+        # 1. El cliente es totalmente nuevo.
+        # 2. O el cliente ya existia pero no escribia hace mas de un dia.
+        return res is None
+        
+    except Error as e:
+        print(f"error en if_primer_contacto: {e}")
         return False
     finally:
         if 'cur' in locals(): cur.close()
