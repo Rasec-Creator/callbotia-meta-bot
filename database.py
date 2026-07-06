@@ -1,100 +1,73 @@
 import datetime
-import os, mysql.connector
+import os
 import re
-from mysql.connector import Error, pooling
+import sqlite3
 import time
 
-# Dejamos el pool como None al inicio para que no explote al bootear el worker
-db_pool = None
-
-def crear_pool():
-    """Intenta inicializar el pool de conexiones."""
-    global db_pool
-    try:
-        db_pool = mysql.connector.pooling.MySQLConnectionPool(
-            pool_name="katia_pool",
-            pool_size=5,
-            pool_reset_session=True,
-            host=os.getenv("MYSQLHOST"),
-            user=os.getenv("MYSQLUSER"),
-            password=os.getenv("MYSQLPASSWORD"),
-            database=os.getenv("MYSQLDATABASE"),
-            port=int(os.getenv("MYSQLPORT", 3306)),
-            connect_timeout=20  # Tiempo suficiente para que Railway despierte la DB
-        )
-        return True
-    except Error as e:
-        print(f"Aun no hay conexion con MySQL: {e}")
-        return False
+DB_PATH = os.path.join(os.path.dirname(__file__), "WhatsappBot.db")
 
 def get_db_connection():
-    """Obtiene una conexion del pool, creandolo si no existe."""
-    global db_pool
-    if db_pool is None:
-        if not crear_pool():
-            return None
+    """obtiene una conexion limpia a sqlite configurada como diccionario."""
     try:
-        return db_pool.get_connection()
-    except Error as e:
-        print(f"error mysql pool: {e}")
-        # Si falla la conexion, reseteamos el pool para forzar re-creacion en el proximo intento
-        db_pool = None
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.Error as e:
+        print(f"error conexion sqlite: {e}")
         return None
 
 def init_db():
-    """Inicializa las tablas necesarias."""
+    """inicializa las tablas necesarias si no existen."""
     conn = get_db_connection()
     if not conn: return
     try:
         cur = conn.cursor()
+        
         cur.execute('''
             CREATE TABLE IF NOT EXISTS leads (
-                id INT AUTO_INCREMENT PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT,
-                telefono VARCHAR(255) UNIQUE NOT NULL,
-                email VARCHAR(255),
-                conversation_id VARCHAR(255),
+                telefono TEXT UNIQUE NOT NULL,
+                email TEXT,
+                conversation_id TEXT,
                 ultimo_mensaje TEXT,
-                fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
         cur.execute('''
             CREATE TABLE IF NOT EXISTS mensajes_procesados (
-                msg_id VARCHAR(255) PRIMARY KEY,
+                msg_id TEXT PRIMARY KEY,
                 fecha_recepcion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
         conn.commit()
-    except Error as e:
+    except sqlite3.Error as e:
         print(f"error init_db: {e}")
     finally:
         if 'cur' in locals(): cur.close()
         conn.close()
 
 def check_if_processed(msg_id):
-    """Evita duplicados con sistema de reintentos robusto."""
-    reintentos = 5 # Subimos a 5 para mayor seguridad
-    for i in range(reintentos):
-        conn = get_db_connection()
-        if conn:
-            try:
-                cur = conn.cursor()
-                cur.execute("DELETE FROM mensajes_procesados WHERE fecha_recepcion < NOW() - INTERVAL 1 HOUR")
-                cur.execute("INSERT INTO mensajes_procesados (msg_id) VALUES (%s)", (msg_id,))
-                conn.commit()
-                return False 
-            except Error as e:
-                if e.errno == 1062: # Duplicate entry
-                    return True
-                print(f"Error en query (intento {i+1}): {e}")
-            finally:
-                if 'cur' in locals(): cur.close()
-                conn.close()
-        
-        print(f"DB dormida, reintentando en 2 segundos... ({i+1}/{reintentos})")
-        time.sleep(2)
-    return False
+    """evita duplicados usando la excepcion de integridad nativa de sqlite."""
+    conn = get_db_connection()
+    if not conn: return False
+    try:
+        cur = conn.cursor()
+        # usamos los modificadores de tiempo de sqlite en lugar de interval
+        cur.execute("DELETE FROM mensajes_procesados WHERE fecha_recepcion < datetime('now', '-1 hour')")
+        cur.execute("INSERT INTO mensajes_procesados (msg_id) VALUES (?)", (msg_id,))
+        conn.commit()
+        return False 
+    except sqlite3.IntegrityError:
+        # si el msg_id ya existe salta esta excepcion por la clave primaria
+        return True
+    except sqlite3.Error as e:
+        print(f"error en query check_if_processed: {e}")
+        return False
+    finally:
+        if 'cur' in locals(): cur.close()
+        conn.close()
 
 def extraer_email(texto):
     patron = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
@@ -105,36 +78,48 @@ def create_or_update_conv(phone, nombre, texto, client_openai):
     conn = get_db_connection()
     if not conn: return None
     try:
-        cur = conn.cursor(dictionary=True)
-        # Traemos también la fecha de actualización
-        cur.execute("SELECT conversation_id, fecha_actualizacion FROM leads WHERE telefono = %s", (phone,))
+        cur = conn.cursor()
+        cur.execute("SELECT conversation_id, fecha_actualizacion FROM leads WHERE telefono = ?", (phone,))
         res = cur.fetchone()
         
-        ahora = datetime.datetime.now()
+        ahora = datetime.datetime.utcnow()
         
-        # Si existe pero la última charla fue hace más de 24 horas...
         if res and res['conversation_id']:
-            ultima_vez = res['fecha_actualizacion']
-            # Calculamos la diferencia
-            if (ahora - ultima_vez).days >= 1:
-                # CREAMOS UN HILO NUEVO para que no arrastre basura vieja
-                c_id = client_openai.conversations.create().id
-                cur.execute("UPDATE leads SET conversation_id = %s, ultimo_mensaje = %s WHERE telefono = %s", 
-                           (c_id, texto, phone))
+            ultima_vez_str = res['fecha_actualizacion']
+            # sqlite guarda las fechas como texto por ende las parseamos a objeto datetime
+            if isinstance(ultima_vez_str, str):
+                ultima_vez = datetime.datetime.strptime(ultima_vez_str, '%Y-%m-%d %H:%M:%S')
             else:
-                # Es una charla fluida, seguimos con el mismo ID
+                ultima_vez = ultima_vez_str
+            
+            # si la ultima charla fue hace mas de 24 horas...
+            if (ahora - ultima_vez).days >= 1:
+                c_id = client_openai.conversations.create().id
+                # actualizamos manualmente fecha_actualizacion ya que sqlite no tiene on update automatico
+                cur.execute("""
+                    UPDATE leads 
+                    SET conversation_id = ?, ultimo_mensaje = ?, fecha_actualizacion = datetime('now') 
+                    WHERE telefono = ?
+                """, (c_id, texto, phone))
+            else:
                 c_id = res['conversation_id']
-                cur.execute("UPDATE leads SET ultimo_mensaje = %s WHERE telefono = %s", (texto, phone))
+                cur.execute("""
+                    UPDATE leads 
+                    SET ultimo_mensaje = ?, fecha_actualizacion = datetime('now') 
+                    WHERE telefono = ?
+                """, (texto, phone))
         else:
-            # Caso de usuario nuevo
+            # caso de usuario nuevo
             c_id = client_openai.conversations.create().id
-            cur.execute("INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje) VALUES (%s, %s, %s, %s)", 
-                       (phone, nombre, c_id, texto))
+            cur.execute("""
+                INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje) 
+                VALUES (?, ?, ?, ?)
+            """, (phone, nombre, c_id, texto))
         
         conn.commit()
         return c_id
     except Exception as e:
-        print(f"Error en gestion de hilos: {e}")
+        print(f"error en gestion de hilos: {e}")
         return None
     finally:
         if 'cur' in locals(): cur.close()
@@ -145,21 +130,17 @@ def if_primer_contacto(phone):
     if not conn: return False
     try:
         cur = conn.cursor()
-        # Buscamos si el numero existe Y si fue actualizado en las ultimas 24 horas
+        # usamos modificadores de fecha de sqlite para calcular el dia anterior
         query = """
             SELECT 1 FROM leads 
-            WHERE telefono = %s 
-            AND fecha_actualizacion > NOW() - INTERVAL 1 DAY
+            WHERE telefono = ? 
+            AND fecha_actualizacion > datetime('now', '-1 day')
         """
         cur.execute(query, (phone,))
         res = cur.fetchone()
-        
-        # Si res es None, significa que:
-        # 1. El cliente es totalmente nuevo.
-        # 2. O el cliente ya existia pero no escribia hace mas de un dia.
         return res is None
         
-    except Error as e:
+    except sqlite3.Error as e:
         print(f"error en if_primer_contacto: {e}")
         return False
     finally:

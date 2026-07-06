@@ -2,7 +2,6 @@ import base64
 import requests
 import os
 from dotenv import load_dotenv 
-import requests
 from openai import OpenAI
 import logging
 
