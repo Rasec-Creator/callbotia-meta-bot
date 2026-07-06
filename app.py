@@ -98,7 +98,8 @@ def ver_dashboard():
     conn = get_db_connection()
     if not conn: return "error db connection"
     try:
-        cur = conn.cursor(dictionary=True)
+        # en sqlite no se usa el parametro dictionary aqui porque ya viene configurado desde la conexion
+        cur = conn.cursor()
         cur.execute("SELECT * FROM leads ORDER BY fecha_actualizacion DESC")
         leads = cur.fetchall()
         
