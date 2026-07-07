@@ -1,7 +1,7 @@
 #  datos sensibles 
 .env
 *.json
-!google_key.json 
+google_key.json 
 #  python 
 __pycache__/
 *.py[cod]
