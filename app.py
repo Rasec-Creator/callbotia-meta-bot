@@ -3,7 +3,7 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps
-import logging 
+from logger import get_logger
 
 load_dotenv()
 app = Flask(__name__)
@@ -12,17 +12,7 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 # pool de hilos
 executor = ThreadPoolExecutor(max_workers=10)
 
-#logging
-log_filename = "app.log"
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_filename), # Guarda en archivo
-        logging.StreamHandler()            # También muestra en consola de Railway
-    ]
-)
-logger = logging.getLogger("KatIA")
+logger = get_logger()
 
 from database import init_db, get_db_connection, check_if_processed
 from bot_logic import procesar_seguro, extraer_contenido
@@ -189,7 +179,7 @@ def eliminar_lote():
     return "<script>window.location.href='/dashboard';</script>"
 
 @app.route('/eliminar/<int:id>')
-@login_requerido # tambien protegido para que no borren por url
+@login_requerido 
 def eliminar(id):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -202,32 +192,46 @@ def eliminar(id):
 @login_requerido
 def ver_logs():
     try:
-        with open("app.log", "r") as f:
-            # Leemos 100 lineas
+        with open("app.log", "r", encoding="utf-8") as f:
             lineas = f.readlines()
-            logs_finales = "".join(lineas[-100:]) 
+            # tomamos las últimas 100 líneas
+            ultimas_lineas = lineas[-100:]
+            
+        logs_formateados = []
+        for linea in ultimas_lineas:
+            linea_html = linea.replace("<", "&lt;").replace(">", "&gt;")
+            
+            if " - ERROR - " in linea_html or "CRÍTICO" in linea_html:
+                linea_html = f'<span class="error">{linea_html}</span>'
+            elif " - INFO - " in linea_html:
+                linea_html = f'<span class="info">{linea_html}</span>'
+                
+            logs_formateados.append(linea_html)
+            
+        logs_finales = "".join(logs_formateados)
             
         return f"""
         <html>
             <head>
                 <title>Logs Kat-IA</title>
                 <style>
-                    body {{ background: #1e1e1e; color: #d4d4d4; font-family: monospace; padding: 20px; }}
-                    pre {{ white-space: pre-wrap; word-wrap: break-word; }}
+                    body {{ background: #1e1e1e; color: #d4d4d4; font-family: monospace; padding: 20px; line-height: 1.4; }}
+                    pre {{ white-space: pre-wrap; word-wrap: break-word; background: #252526; padding: 15px; border-radius: 5px; }}
                     .info {{ color: #4fc1ff; }}
-                    .error {{ color: #f44747; }}
+                    .error {{ color: #f44747; font-weight: bold; }}
                 </style>
+                <meta http-equiv="refresh" content="5">
             </head>
             <body>
-                <h2>📜 Logs del Servidor</h2>
-                <hr>
+                <h2>📜 Logs del Servidor (Kat-IA)</h2>
+                <hr style="border: 0; border-top: 1px solid #333; margin-bottom: 20px;">
                 <pre>{logs_finales}</pre>
                 <script>window.scrollTo(0,document.body.scrollHeight);</script>
             </body>
         </html>
         """
     except FileNotFoundError:
-        return "El archivo de log todavía no se creó.", 404
+        return "El archivo de log todavía no se creó o está vacío.", 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))

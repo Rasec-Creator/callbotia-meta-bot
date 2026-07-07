@@ -3,6 +3,9 @@ import os
 import re
 import sqlite3
 import time
+from logger import get_logger
+
+logger = get_logger()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "WhatsappBot.db")
 
@@ -13,9 +16,8 @@ def get_db_connection():
         conn.row_factory = sqlite3.Row
         return conn
     except sqlite3.Error as e:
-        print(f"error conexion sqlite: {e}")
+        logger.error(f"error conexion sqlite: {e}")
         return None
-
 def init_db():
     """inicializa las tablas necesarias si no existen."""
     conn = get_db_connection()
@@ -23,6 +25,7 @@ def init_db():
     try:
         cur = conn.cursor()
         
+        # tabla de leads
         cur.execute('''
             CREATE TABLE IF NOT EXISTS leads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,15 +38,28 @@ def init_db():
                 fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
+        
+        # tabla de mensajes procesados para evitar duplicados
         cur.execute('''
             CREATE TABLE IF NOT EXISTS mensajes_procesados (
                 msg_id TEXT PRIMARY KEY,
                 fecha_recepcion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
+        
+        # tabla de reuniones
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS meetings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telefono TEXT NOT NULL,
+                fecha_hora DATETIME NOT NULL,
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+        
         conn.commit()
     except sqlite3.Error as e:
-        print(f"error init_db: {e}")
+        logger.error(f"error init_db: {e}")
     finally:
         if 'cur' in locals(): cur.close()
         conn.close()
@@ -63,7 +79,7 @@ def check_if_processed(msg_id):
         # si el msg_id ya existe salta esta excepcion por la clave primaria
         return True
     except sqlite3.Error as e:
-        print(f"error en query check_if_processed: {e}")
+        logger.error(f"error en query check_if_processed: {e}")
         return False
     finally:
         if 'cur' in locals(): cur.close()
@@ -119,7 +135,7 @@ def create_or_update_conv(phone, nombre, texto, client_openai):
         conn.commit()
         return c_id
     except Exception as e:
-        print(f"error en gestion de hilos: {e}")
+        logger.error(f"error en gestion de hilos: {e}")
         return None
     finally:
         if 'cur' in locals(): cur.close()
@@ -141,8 +157,46 @@ def if_primer_contacto(phone):
         return res is None
         
     except sqlite3.Error as e:
-        print(f"error en if_primer_contacto: {e}")
+        logger.error(f"error en if_primer_contacto: {e}")
         return False
     finally:
         if 'cur' in locals(): cur.close()
+        conn.close()
+
+def guardar_contacto_lead(nombre, telefono, email, empresa='-', puesto='-', interes='-'):
+    """
+    guarda o actualiza los datos de perfil corporativo de un lead usando un upsert sobre el telefono.
+    """
+    conn = get_db_connection()
+    if not conn:
+        logger.error("No se pudo establecer conexion para guardar_contacto_lead")
+        return {"status": "error", "message": "error de conexion con la base de datos"}
+    
+    try:
+        cur = conn.cursor()
+        
+        # empaquetamos los datos corporativos extras en el campo de ultimo mensaje
+        nota_datos = f"Empresa: {empresa} | Puesto: {puesto} | Interes: {interes}"
+
+        # query para sqlite basada en el telefono como clave unica
+        sql_upsert = """
+            INSERT INTO leads (nombre, telefono, email, ultimo_mensaje) 
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(telefono) DO UPDATE SET
+                nombre = excluded.nombre,
+                email = excluded.email,
+                ultimo_mensaje = excluded.ultimo_mensaje,
+                fecha_actualizacion = datetime('now')
+        """
+        
+        cur.execute(sql_upsert, (nombre, telefono, email, nota_datos))
+        conn.commit()
+        
+        logger.info(f"Lead {telefono} registrado/actualizado con exito en sqlite")
+        return {"status": "success", "message": "Lead registrado correctamente"}
+
+    except sqlite3.Error as e:
+        logger.error(f"Error ejecucion en guardar_contacto_lead: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+    finally:
         conn.close()

@@ -1,20 +1,21 @@
 import json, datetime, time, os
 from threading import Lock
 from openai import OpenAI
+from database import get_db_connection, guardar_contacto_lead
+from services.calendar_service import agendar_reunion
 from services.whatsapp_service import enviar_mensaje, enviar_botones_dinamicos
 from services.mail_service import enviar_mail_resend
-import logging
-import requests
 import datetime
 import json
+from logger import get_logger
 
-logger = logging.getLogger("KatIA")
+logger = get_logger()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 PROMPT_ID = os.getenv("PROMPT_ID")
 locks = {}
 
 def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
-    print("consultar_ia", phone_id, texto, conv_id, phone, imagen_b64 is not None)
+    logger.info(f"consultar_ia - phone_id: {phone_id}, texto: {texto}, conv_id: {conv_id}, phone: {phone}, tiene_imagen: {imagen_b64 is not None}")
     if phone not in locks:
         locks[phone] = {"lock": Lock(), "last_seen": time.time()}
     locks[phone]['last_seen'] = time.time()
@@ -85,68 +86,66 @@ def ejecutar_herramienta(phone_id, item, phone):
             enviar_botones_dinamicos(phone_id, phone, args['texto_cuerpo'], args['botones'])
             return {"status": "ok"}, None
         case 'guardar_contacto':
-            payload = {
-                "nombre": args.get('nombre'),
-                "email": args.get('email'),
-                "empresa": args.get('empresa'),
-                "puesto": args.get('puesto'),
-                "interes": args.get('interes'),
-                "tipo": "callbotia",
-                "origen": "WhatsApp Bot"
-            }
-            try:
-                r = requests.post("https://callbotia.site/reuniones/webhook.php", 
-                    headers=headers, 
-                    timeout=10
-                )
-                res = r.json()
-                if res.get("status") == "success":
-                    msg = (f"¡Excelente, {args.get('nombre')}! Ya registré tus datos de **{args.get('empresa')}**. "
-                           "Un asesor se va a estar contactando con vos pronto. ¿Te puedo ayudar con algo más?")
-                    return res, msg
-                return res, f"tuvimos un problema al guardar los datos: {res.get('message')}"
-            except Exception as e:
-                return {"status": "error"}, f"no pude conectar con el servidor de registro: {str(e)}"
+            nombre = args.get('nombre')
+            empresa = args.get('empresa', '-')
+            telefono_cliente = phone  # la variable que ya usas para capturar el numero del webhook
+
+            # llamamos a la funcion limpia de database.py
+            res = guardar_contacto_lead(
+                nombre=nombre,
+                telefono=telefono_cliente,
+                email=args.get('email'),
+                empresa=empresa,
+                puesto=args.get('puesto', '-'),
+                interes=args.get('interes', '-')
+            )
+            
+            if res.get("status") == "success":
+                msg = (f"¡Excelente, {nombre}! Ya registré tus datos de **{empresa}**. "
+                       "Un asesor se va a estar contactando con vos pronto. ¿Te puedo ayudar con algo más?")
+                return res, msg
+            else:
+                msg_error = f"tuvimos un problema al guardar los datos: {res.get('message')}"
+                return res, msg_error
 
         case 'agendar_reunion':
-            payload = {
-                "nombre": args.get('nombre'),
-                "email": args.get('email'),
-                "fecha_hora": args.get('fecha_hora'),
-                "resumen": args.get('resumen', 'consulta desde chatbot'),
-                "tipo": "callbotia"
-            }
-            try:
-                r = requests.post(
-                    "https://callbotia.site/reuniones/agendar.php", 
-                    json=payload, 
-                    headers=headers, 
-                    timeout=10
-                )
-                res = r.json()
-                print("respuesta agenda:", res)
-                if res.get("status") == "success":
-                    link_meet = res.get('meet_link', 'vincule el link manualmente')
-                    fecha_raw = res.get('fecha_confirmada', args['fecha_hora'])
-                    
-                    try:
-                        dt = datetime.datetime.fromisoformat(fecha_raw)
-                        fecha_linda = dt.strftime('%d/%m/%Y a las %H:%M')
-                    except:
-                        fecha_linda = fecha_raw
-                    
-                    msg = (f"✅ ¡Reunion confirmada, {args.get('nombre', 'cliente')}!\n\n"
-                           f"📅 *Fecha:* {fecha_linda} hs\n"
-                           f"🔗 *Link:* {link_meet}\n\n"
-                           "Te enviamos un mail con los detalles. ¡nos vemos! 🚀")
-                    
-                    return res, msg
+            # extraemos los datos que nos envia openai
+            fecha_hora = args.get('fecha_hora')
+            nombre = args.get('nombre', 'cliente')
+            telefono_cliente = phone 
+            email_cliente = args.get('email')
+            resumen_consulta = args.get('resumen', 'Consulta general')
+
+            res = agendar_reunion(
+                fecha_iso=fecha_hora,
+                nombre_cliente=nombre,
+                telefono=telefono_cliente,
+                email=email_cliente,
+                resumen=resumen_consulta
+            )
+            
+            if res.get("status") == "success":
+                fecha_raw = res.get('fecha_confirmada', fecha_hora)
+                link_meet = res.get('meet_link', 'vincule el link manualmente')
                 
-                # manejo de errores (horario ocupado, fin de semana..)
-                return res, f"no pude agendar: {res.get('message')}"
+                try:
+                    dt = datetime.datetime.fromisoformat(fecha_raw)
+                    fecha_linda = dt.strftime('%d/%m/%Y a las %H:%M')
+                except:
+                    fecha_linda = fecha_raw
                 
-            except Exception as e:
-                return {"status": "error"}, f"hubo un problema con el servidor de agenda: {str(e)}"
+                msg = (f"✅ ¡Reunion confirmada, {nombre}!\n\n"
+                       f"📅 *Fecha:* {fecha_linda} hs\n"
+                       f"🔗 *Link:* {link_meet}\n\n"
+                       "Te enviamos un mail con los detalles. ¡nos vemos! 🚀")
+                
+                return res, msg
+            
+            else:
+                # si fallo por horario ocupado, fin de semana o fuera de rango,
+                # res['message'] trae la explicacion exacta que armamos antes
+                msg_error = f"no pude agendar: {res.get('message', 'error desconocido')}"
+                return res, msg_error
 
         case 'enviar_email':
             if enviar_mail_resend(args['email_destino'], args['asunto'], args['cuerpo']):

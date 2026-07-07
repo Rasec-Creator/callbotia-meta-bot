@@ -3,9 +3,9 @@ import requests
 import os
 from dotenv import load_dotenv 
 from openai import OpenAI
-import logging
+from logger import get_logger
 
-logger = logging.getLogger("KatIA")
+logger = get_logger()
 load_dotenv()
 TOKENeu = os.getenv("TOKEN_EU")
 TOKENar = os.getenv("TOKEN_AR")
@@ -157,8 +157,6 @@ def transcribir_audio(url,phone_id):
         return None
     
 def obtener_token_por_phone_id(phone_id):
-    # IDs de Argentina / Global
-    print("phone: ",phone_id)
     ids_argentina = ["918005154740840", "1027702013752458"] # 11 2049-5801 // 2346 45-4493
     # ID de España
     id_espana = "635147226357107" # +34 608 33 27 73

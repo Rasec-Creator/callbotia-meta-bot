@@ -38,6 +38,7 @@ ENV/
 *.sql
 *.sqlite
 database.db
+*.db
 
 # archivos temporales del proyecto 
 response.json

@@ -1,8 +1,9 @@
 from database import if_primer_contacto, create_or_update_conv
 from services.whatsapp_service import enviar_botones_bienvenida, enviar_mensaje, obtener_media_url, descargar_y_codificar, transcribir_audio
 from ia_logic import consultar_ia, client
-import logging 
-logger = logging.getLogger("KatIA")
+from logger import get_logger
+
+logger = get_logger()
 
 def procesar_seguro(phone_id,to, nombre_wa, texto, boton_id, media_id, tipo):
     try:

@@ -128,16 +128,6 @@ Puedes desplegar en Railway, Heroku u otra plataforma compatible con Gunicorn.
 - `services/google_key.json` debería mantenerse seguro.
 - Ajusta los permisos de la cuenta de servicio de Google para Calendar.
 
-## 📌 Mejoras sugeridas
-
-- Añadir validación de firma de webhook de Meta.
-- Soportar más tipos de mensajes de WhatsApp.
-- Cambiar `logger.info` por niveles de logging más detallados.
-- Soportar más idiomas / regiones en los tokens de WhatsApp.
-- Mejorar el dashboard con paginación y búsqueda.
-
----
-
 ### Contacto
 
 Proyecto desarrollado como parte de CallBotIA para integración de chat inteligente en WhatsApp con Meta Business y OpenAI.
