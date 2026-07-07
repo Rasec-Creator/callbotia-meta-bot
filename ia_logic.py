@@ -144,7 +144,7 @@ def ejecutar_herramienta(phone_id, item, phone):
             else:
                 # si fallo por horario ocupado, fin de semana o fuera de rango,
                 # res['message'] trae la explicacion exacta que armamos antes
-                msg_error = f"no pude agendar: {res.get('message', 'error desconocido')}"
+                msg_error = f"No pude agendar. {res.get('message', 'error desconocido')}"
                 return res, msg_error
 
         case 'enviar_email':

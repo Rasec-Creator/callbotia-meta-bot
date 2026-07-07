@@ -81,17 +81,23 @@ def login_requerido(f):
         return f(*args, **kwargs)
     return decorated
 
-# Rutas de dashboard
+# --- RUTAS DEL DASHBOARD ---
+
 @app.route('/dashboard')
 @login_requerido
 def ver_dashboard():
     conn = get_db_connection()
     if not conn: return "error db connection"
     try:
-        # en sqlite no se usa el parametro dictionary aqui porque ya viene configurado desde la conexion
         cur = conn.cursor()
+        
+        # traemos los leads ordenados
         cur.execute("SELECT * FROM leads ORDER BY fecha_actualizacion DESC")
         leads = cur.fetchall()
+        
+        # traemos las reuniones ordenadas por fecha de cita
+        cur.execute("SELECT * FROM meetings ORDER BY fecha_hora ASC")
+        meetings = cur.fetchall()
         
         html = """
         <!DOCTYPE html>
@@ -104,17 +110,19 @@ def ver_dashboard():
             <style>
                 body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
                 .navbar { background-color: #212529; margin-bottom: 2rem; }
-                .card { border: none; box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15); }
+                .card { border: none; box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15); margin-bottom: 2rem; }
+                .badge-info { background-color: #cee9fe; color: #333; }
             </style>
         </head>
         <body>
-            <nav class="navbar navbar-dark shadow"><div class="container"><span class="navbar-brand mb-0 h1">Kat-IA | Lead Manager</span></div></nav>
+            <nav class="navbar navbar-dark shadow"><div class="container"><span class="navbar-brand mb-0 h1">Kat-IA | Lead & Agenda Manager</span></div></nav>
 
             <div class="container">
-                <form id="formBorrado" action="/eliminar_lote" method="POST">
+                
+                <form id="formBorradoLeads" action="/eliminar_lote" method="POST">
                     <div class="card p-4">
                         <div class="d-flex justify-content-between align-items-center mb-4">
-                            <h2 class="m-0">Leads</h2>
+                            <h2 class="m-0">👥 Leads de WhatsApp</h2>
                             <button type="submit" class="btn btn-danger" onclick="return confirm('¿borrar seleccionados?')">Borrar Seleccionados</button>
                         </div>
                         
@@ -122,10 +130,12 @@ def ver_dashboard():
                             <table class="table table-hover align-middle">
                                 <thead class="table-dark">
                                     <tr>
-                                        <th><input type="checkbox" id="selectAll" class="form-check-input"></th>
-                                        <th>Telefono</th>
+                                        <th><input type="checkbox" id="selectAllLeads" class="form-check-input"></th>
+                                        <th>Teléfono</th>
                                         <th>Nombre</th>
                                         <th>Email</th>
+                                        <th>Último Perfil / Datos</th>
+                                        <th>Actualizado</th>
                                         <th>Acciones</th>
                                     </tr>
                                 </thead>
@@ -133,13 +143,25 @@ def ver_dashboard():
         """
         for l in leads:
             html += f"""
-                <tr>
-                    <td><input type="checkbox" name="ids" value="{l['id']}" class="form-check-input lead-check"></td>
-                    <td><strong>{l['telefono']}</strong></td>
-                    <td>{l['nombre'] or '-'}</td>
-                    <td>{l['email'] or '-'}</td>
-                    <td><a href='/eliminar/{l['id']}' class='btn btn-sm btn-outline-danger' onclick="return confirm('seguro?')">Borrar</a></td>
-                </tr>
+                                    <tr>
+                                        <td><input type="checkbox" name="ids" value="{l['id']}" class="form-check-input lead-check"></td>
+                                        <td>
+                                            <span class="fw-bold">+{l['telefono']}</span><br>
+                                            <div class="mt-1">
+                                                <a href="https://wa.me/{str(l['telefono']).replace('+', '')}" target="_blank" class="btn btn-sm btn-success py-0 px-2" style="font-size: 0.75rem; border-radius: 10px;">
+                                                    💬 WhatsApp
+                                                </a>
+                                                <a href="tel:+{str(l['telefono']).replace('+', '')}" class="btn btn-sm btn-primary py-0 px-2" style="font-size: 0.75rem; border-radius: 10px;">
+                                                    📞 Llamar
+                                                </a>
+                                            </div>
+                                        </td>
+                                        <td>{l['nombre'] or '-'}</td>
+                                        <td>{l['email'] or '-'}</td>
+                                        <td><small class="text-muted">{l['ultimo_mensaje'] or '-'}</small></td>
+                                        <td><small>{l['fecha_actualizacion']}</small></td>
+                                        <td><a href='/eliminar/{l['id']}' class='btn btn-sm btn-outline-danger' onclick="return confirm('¿Seguro que querés borrar este lead?')">Borrar</a></td>
+                                    </tr>
             """
         
         html += """
@@ -148,11 +170,55 @@ def ver_dashboard():
                         </div>
                     </div>
                 </form>
+
+                <div class="card p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2 class="m-0">📅 Agenda de Meetings (Google Meet)</h2>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Teléfono Lead</th>
+                                    <th>Fecha y Hora Cita</th>
+                                    <th>Creada</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+        """
+        for m in meetings:
+            html += f"""
+                                <tr>
+                                    <td>
+                                        <span class="fw-bold">+{l['telefono']}</span><br>
+                                        <div class="mt-1">
+                                            <a href="https://wa.me/{str(l['telefono']).replace('+', '')}" target="_blank" class="btn btn-sm btn-success py-0 px-2" style="font-size: 0.75rem; border-radius: 10px;">
+                                                💬 WhatsApp
+                                            </a>
+                                            <a href="tel:+{str(l['telefono']).replace('+', '')}" class="btn btn-sm btn-primary py-0 px-2" style="font-size: 0.75rem; border-radius: 10px;">
+                                                📞 Llamar
+                                            </a>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge bg-primary fs-6">{m['fecha_hora']} hs</span></td>
+                                    <td><small class="text-muted">{m['fecha_creacion']}</small></td>
+                                    <td><a href='/eliminar_reunion/{m['id']}' class='btn btn-sm btn-danger' onclick="return confirm('¿Seguro que querés cancelar y borrar esta reunión?')">Eliminar</a></td>
+                                </tr>
+            """
+            
+        html += """
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
             </div>
 
             <script>
-                // logica para seleccionar todos
-                document.getElementById('selectAll').onclick = function() {
+                // lógica para seleccionar todos los leads
+                document.getElementById('selectAllLeads').onclick = function() {
                     let checkboxes = document.getElementsByClassName('lead-check');
                     for (let checkbox of checkboxes) {
                         checkbox.checked = this.checked;
@@ -163,7 +229,8 @@ def ver_dashboard():
         </html>
         """
         return html
-    finally: conn.close()
+    finally: 
+        conn.close()
 
 @app.route('/eliminar_lote', methods=['POST'])
 @login_requerido
@@ -172,7 +239,7 @@ def eliminar_lote():
     if ids:
         conn = get_db_connection()
         cur = conn.cursor()
-        format_strings = ','.join(['%s'] * len(ids))
+        format_strings = ','.join(['?'] * len(ids))
         cur.execute(f"DELETE FROM leads WHERE id IN ({format_strings})", tuple(ids))
         conn.commit()
         conn.close()
@@ -183,7 +250,17 @@ def eliminar_lote():
 def eliminar(id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM leads WHERE id = %s", (id,))
+    cur.execute("DELETE FROM leads WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+    return "<script>window.location.href='/dashboard';</script>"
+
+@app.route('/eliminar_reunion/<int:id>')
+@login_requerido 
+def eliminar_reunion(id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM meetings WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     return "<script>window.location.href='/dashboard';</script>"
@@ -234,4 +311,8 @@ def ver_logs():
         return "El archivo de log todavía no se creó o está vacío.", 404
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8000)))
+    puerto = int(os.environ.get("PORT", 8000))
+    # PRODUCCION
+    # app.run(host='0.0.0.0', port=puerto, debug=False)
+    # DESARROLLO
+    app.run(host='0.0.0.0', port=puerto, debug=True)

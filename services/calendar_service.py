@@ -35,9 +35,48 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono, email=None, resumen='Co
         duracion_minutos = 30
         fecha_fin_dt = fecha_dt + datetime.timedelta(minutes=duracion_minutos)
         
-        # armamos los strings formateados en iso real que google exige
-        nueva_fecha_inicio = fecha_dt.isoformat()
-        nueva_fecha_fin = fecha_fin_dt.isoformat()
+        nueva_fecha_inicio_google = fecha_dt.isoformat()
+        nueva_fecha_fin_google = fecha_fin_dt.isoformat()
+
+        fecha_db_inicio = fecha_dt.strftime('%Y-%m-%d %H:%M:%S')
+        fecha_db_fin = fecha_fin_dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        google_creds_json = os.getenv("GOOGLE_CREDENTIALS")
+        if not google_creds_json:
+            logger.error("ERROR: No se encontró la variable de entorno GOOGLE_CREDENTIALS")
+            return {"status": "error", "message": "Credenciales de Google no configuradas"}
+
+        try:
+            creds_dict = json.loads(google_creds_json)
+            SCOPES = ['https://www.googleapis.com/auth/calendar']
+            creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+            service = build('calendar', 'v3', credentials=creds)
+        except json.JSONDecodeError as json_err:
+            logger.error(f"Error al parsear el JSON de GOOGLE_CREDENTIALS: {json_err}")
+            return {"status": "error", "message": "Formato de credenciales invalido"}
+
+        CALENDAR_ID = 'reuniones.callbotia@gmail.com'
+
+        try:
+            # listamos eventos que se solapen con nuestro rango (formato ISO con zona horaria)
+            events_result = service.events().list(
+                calendarId=CALENDAR_ID,
+                timeMin=nueva_fecha_inicio_google + "-03:00", # offset de Argentina
+                timeMax=nueva_fecha_fin_google + "-03:00",
+                singleEvents=True
+            ).execute()
+            
+            events = events_result.get('items', [])
+            
+            if events:
+                logger.info(f"Cruce detectado en Google Calendar para el horario: {fecha_db_inicio}")
+                return {
+                    "status": "error",
+                    "message": "Lo sentimos, este horario ya está ocupado en nuestra agenda. Por favor, elige otro."
+                }
+        except Exception as api_err:
+            logger.error(f"Error al validar contra Google Calendar API: {api_err}", exc_info=True)
+            return {"status": "error", "message": "No se pudo verificar la disponibilidad en el calendario central."}
 
         conn = get_db_connection()
         if not conn:
@@ -55,7 +94,7 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono, email=None, resumen='Co
             """
             cur.execute(
                 check_sql, 
-                (nueva_fecha_inicio, duracion_minutos, nueva_fecha_inicio, nueva_fecha_fin, duracion_minutos, nueva_fecha_fin)
+                (fecha_db_inicio, duracion_minutos, fecha_db_inicio, fecha_db_fin, duracion_minutos, fecha_db_fin)
             )
             row = cur.fetchone()
             
@@ -65,46 +104,31 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono, email=None, resumen='Co
                     "message": "Lo sentimos, este horario ya está reservado. Por favor, elige otro."
                 }
 
-            google_creds_json = os.getenv("GOOGLE_CREDENTIALS")
-            
-            if not google_creds_json:
-                logger.error("ERROR: No se encontró la variable de entorno GOOGLE_CREDENTIALS")
-                return {"status": "error", "message": "Credenciales de Google no configuradas"}
-
-            try:
-                creds_dict = json.loads(google_creds_json)
-                SCOPES = ['https://www.googleapis.com/auth/calendar']
-                creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-                service = build('calendar', 'v3', credentials=creds)
-                
-            except json.JSONDecodeError as json_err:
-                logger.error(f"Error al parsear el JSON de GOOGLE_CREDENTIALS: {json_err}")
-                return {"status": "error", "message": "Formato de credenciales invalido"}
-
             MEET_LINK = "https://meet.google.com/mmn-munx-pts"
 
             evento = {
                 'summary': f'Reunión CallBotIA: {nombre_cliente}',
                 'description': f'WhatsApp: +{telefono}\nMotivo: {resumen}',
                 'location': f'{MEET_LINK}',
-                'start': {'dateTime': nueva_fecha_inicio, 'timeZone': 'America/Argentina/Buenos_Aires'},
-                'end': {'dateTime': nueva_fecha_fin, 'timeZone': 'America/Argentina/Buenos_Aires'},
+                'start': {'dateTime': nueva_fecha_inicio_google, 'timeZone': 'America/Argentina/Buenos_Aires'},
+                'end': {'dateTime': nueva_fecha_fin_google, 'timeZone': 'America/Argentina/Buenos_Aires'},
             }
             
             service.events().insert(
-                calendarId='reuniones.callbotia@gmail.com', 
+                calendarId=CALENDAR_ID, 
                 body=evento
             ).execute()
 
             cur.execute(
                 "INSERT INTO meetings (telefono, fecha_hora) VALUES (?, ?)",
-                (telefono, nueva_fecha_inicio)
+                (telefono, fecha_db_inicio)
             )
             
             if email:
                 cur.execute("UPDATE leads SET email = ? WHERE telefono = ?", (email, telefono))
                 
             conn.commit()
+            
             if email:
                 enviar_mail_reunion(
                     email_destinatario=email,
@@ -119,7 +143,7 @@ def agendar_reunion(fecha_iso, nombre_cliente, telefono, email=None, resumen='Co
                 "status": "success",
                 "message": "Reunion guardada y mail enviado",
                 "meet_link": MEET_LINK,
-                "fecha_confirmada": nueva_fecha_inicio,
+                "fecha_confirmada": fecha_db_inicio,
                 "cliente": nombre_cliente
             }
 
