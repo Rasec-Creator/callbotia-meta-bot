@@ -10,7 +10,7 @@ app = Flask(__name__)
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
 
 # pool de hilos
-executor = ThreadPoolExecutor(max_workers=10)
+executor = ThreadPoolExecutor(max_workers=3)
 
 logger = get_logger()
 
@@ -18,8 +18,10 @@ from database import init_db, get_db_connection, check_if_processed
 from bot_logic import procesar_seguro, extraer_contenido
 from ia_logic import locks
 
-# inicializacion db
-threading.Thread(target=init_db).start()
+try:
+    init_db()
+except Exception as e:
+    print(f"Error crítico al inicializar la base de datos: {e}")
 
 
 def limpiar_locks_viejos():

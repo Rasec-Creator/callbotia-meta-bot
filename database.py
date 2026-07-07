@@ -10,13 +10,16 @@ logger = get_logger()
 DB_PATH = os.path.join(os.path.dirname(__file__), "WhatsappBot.db")
 
 def get_db_connection():
-    """obtiene una conexion limpia a sqlite configurada como diccionario."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect("katia.db", timeout=30.0)
         conn.row_factory = sqlite3.Row
+        
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        
         return conn
-    except sqlite3.Error as e:
-        logger.error(f"error conexion sqlite: {e}")
+    except Exception as e:
+        logger.error(f"error de conexion a la base de datos: {e}")
         return None
 def init_db():
     """inicializa las tablas necesarias si no existen."""
@@ -68,22 +71,25 @@ def check_if_processed(msg_id):
     """evita duplicados usando la excepcion de integridad nativa de sqlite."""
     conn = get_db_connection()
     if not conn: return False
+    
+    es_duplicado = False  # variable de control
     try:
         cur = conn.cursor()
         # usamos los modificadores de tiempo de sqlite en lugar de interval
         cur.execute("DELETE FROM mensajes_procesados WHERE fecha_recepcion < datetime('now', '-1 hour')")
         cur.execute("INSERT INTO mensajes_procesados (msg_id) VALUES (?)", (msg_id,))
         conn.commit()
-        return False 
     except sqlite3.IntegrityError:
         # si el msg_id ya existe salta esta excepcion por la clave primaria
-        return True
+        es_duplicado = True
     except sqlite3.Error as e:
         logger.error(f"error en query check_if_processed: {e}")
-        return False
+        es_duplicado = False
     finally:
         if 'cur' in locals(): cur.close()
-        conn.close()
+        conn.close() # aseguramos que se cierre pase lo que pase
+        
+    return es_duplicado
 
 def extraer_email(texto):
     patron = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
@@ -93,6 +99,8 @@ def extraer_email(texto):
 def create_or_update_conv(phone, nombre, texto, client_openai):
     conn = get_db_connection()
     if not conn: return None
+    
+    c_id_resultado = None  # variable de control
     try:
         cur = conn.cursor()
         cur.execute("SELECT conversation_id, fecha_actualizacion FROM leads WHERE telefono = ?", (phone,))
@@ -124,6 +132,7 @@ def create_or_update_conv(phone, nombre, texto, client_openai):
                     SET ultimo_mensaje = ?, fecha_actualizacion = datetime('now') 
                     WHERE telefono = ?
                 """, (texto, phone))
+            c_id_resultado = c_id
         else:
             # caso de usuario nuevo
             c_id = client_openai.conversations.create().id
@@ -131,15 +140,17 @@ def create_or_update_conv(phone, nombre, texto, client_openai):
                 INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje) 
                 VALUES (?, ?, ?, ?)
             """, (phone, nombre, c_id, texto))
+            c_id_resultado = c_id
         
         conn.commit()
-        return c_id
     except Exception as e:
         logger.error(f"error en gestion de hilos: {e}")
-        return None
+        c_id_resultado = None
     finally:
         if 'cur' in locals(): cur.close()
-        conn.close()
+        conn.close() # liberamos el archivo de la db de inmediato
+        
+    return c_id_resultado
 
 def if_primer_contacto(phone):
     conn = get_db_connection()
