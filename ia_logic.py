@@ -14,8 +14,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 PROMPT_ID = os.getenv("PROMPT_ID")
 locks = {}
 
-def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
-    logger.info(f"consultar_ia - phone_id: {phone_id}, texto: {texto}, conv_id: {conv_id}, phone: {phone}, tiene_imagen: {imagen_b64 is not None}")
+def consultar_ia(phone_id, texto, conv_id, phone, imagen_b64=None):
     if phone not in locks:
         locks[phone] = {"lock": Lock(), "last_seen": time.time()}
     locks[phone]['last_seen'] = time.time()
@@ -23,6 +22,7 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
     with locks[phone]['lock']:
         fecha_string = datetime.datetime.now().strftime("%A %d/%m/%Y %H:%M hs")
         input_ia = texto
+        descripcion_imagen = "Sin imagen"
 
         if imagen_b64:
             try:
@@ -36,10 +36,11 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
                         ]
                     }]
                 )
-                descripcion = res_v.choices[0].message.content
-                input_ia = f"\n[EL USUARIO ENVIÓ UNA IMAGEN: {descripcion}]\n Caption: {texto}"
+                descripcion_imagen = res_v.choices[0].message.content
+                input_ia = f"\n[EL USUARIO ENVIÓ UNA IMAGEN: {descripcion_imagen}]\n Caption: {texto}"
             except Exception as e:
-                logger.info(f"error vision: {e}")
+                logger.error(f"error vision: {e}")
+                descripcion_imagen = "Error al procesar"
                 input_ia = f"\n[IMAGEN NO PROCESADA]\n Caption: {texto}"
 
         try:
@@ -52,11 +53,14 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
             
             outputs_pendientes = []
             texto_final = None
+            herramientas_usadas = []
 
             for item in response.output:
                 if item.type == 'function_call':
-                    res_t, msg_u = ejecutar_herramienta(phone_id,item, phone)
-                    if msg_u: enviar_mensaje(phone_id,phone, msg_u)
+                    herramientas_usadas.append(item.name)
+                    res_t, msg_u = ejecutar_herramienta(phone_id, item, phone)
+                    if msg_u: 
+                        enviar_mensaje(phone_id, phone, msg_u)
                     outputs_pendientes.append({
                         "type": "function_call_output",
                         "call_id": getattr(item, 'call_id', None),
@@ -68,9 +72,20 @@ def consultar_ia(phone_id,texto, conv_id, phone, imagen_b64=None):
             if outputs_pendientes:
                 client.responses.create(model="gpt-4o-mini", conversation=conv_id, input=outputs_pendientes)
                 
+            # LOG DE AUDITORÍA FINAL (Antes del return)
+            logger.info(
+                f"\n----------------------------------------------------"
+                f"\n👤 Cliente (WhatsApp): {phone}"
+                f"\n📥 Mensaje Usuario: {input_ia}"
+                f"\n🛠️ Tools Ejecutadas: {', '.join(herramientas_usadas) if herramientas_usadas else 'Ninguna'}"
+                f"\n📤 Respuesta Bot: {texto_final}"
+                f"\n----------------------------------------------------"
+            )
+            
             return texto_final
+
         except Exception as e:
-            logger.info(f"error openai: {e}")
+            logger.error(f"error openai en consultar_ia: {e}", exc_info=True)
             return None
 
 def ejecutar_herramienta(phone_id, item, phone):

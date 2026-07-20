@@ -157,19 +157,14 @@ def transcribir_audio(url,phone_id):
         return None
     
 def obtener_token_por_phone_id(phone_id):
-    ids_argentina = ["918005154740840", "1027702013752458"] # 11 2049-5801 // 2346 45-4493
+    print(phone_id)
+    ids_argentina = "1261367627053172" #+54 9 11 2049-5801
     # ID de España
     id_espana = "635147226357107" # +34 608 33 27 73
-    id_eu = "1035046919698899" # +1 555-954-6766
-
     if str(phone_id) == id_espana:
         return TOKENes
     elif str(phone_id) in ids_argentina:
         return TOKENar
-    elif str(phone_id) == id_eu: # Reemplaza con el ID real de la UE
-        return TOKENeu
     else:
         # Por defecto usamos el TOKEN estándar si no coincide ninguno
         return TOKENar
-
-        

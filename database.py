@@ -3,6 +3,8 @@ import os
 import re
 import sqlite3
 import time
+
+import pytz
 from logger import get_logger
 
 logger = get_logger()
@@ -66,6 +68,10 @@ def init_db():
     finally:
         if 'cur' in locals(): cur.close()
         conn.close()
+def extraer_email(texto):
+    patron = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+    resultado = re.search(patron, texto)
+    return resultado.group(0) if resultado else None
 
 def check_if_processed(msg_id):
     """evita duplicados usando la excepcion de integridad nativa de sqlite."""
@@ -75,26 +81,26 @@ def check_if_processed(msg_id):
     es_duplicado = False  # variable de control
     try:
         cur = conn.cursor()
-        # usamos los modificadores de tiempo de sqlite en lugar de interval
-        cur.execute("DELETE FROM mensajes_procesados WHERE fecha_recepcion < datetime('now', '-1 hour')")
-        cur.execute("INSERT INTO mensajes_procesados (msg_id) VALUES (?)", (msg_id,))
+        
+        # Calculamos la hora de Argentina y le restamos 1 hora desde Python
+        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+        hace_una_hora = (datetime.datetime.now(tz_arg) - datetime.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+        ahora_arg = datetime.datetime.now(tz_arg).strftime('%Y-%m-%d %H:%M:%S')
+
+        # Usamos los strings calculados desde Python
+        cur.execute("DELETE FROM mensajes_procesados WHERE fecha_recepcion < ?", (hace_una_hora,))
+        cur.execute("INSERT INTO mensajes_procesados (msg_id, fecha_recepcion) VALUES (?, ?)", (msg_id, ahora_arg))
         conn.commit()
     except sqlite3.IntegrityError:
-        # si el msg_id ya existe salta esta excepcion por la clave primaria
         es_duplicado = True
     except sqlite3.Error as e:
         logger.error(f"error en query check_if_processed: {e}")
         es_duplicado = False
     finally:
         if 'cur' in locals(): cur.close()
-        conn.close() # aseguramos que se cierre pase lo que pase
+        conn.close()
         
     return es_duplicado
-
-def extraer_email(texto):
-    patron = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
-    resultado = re.search(patron, texto)
-    return resultado.group(0) if resultado else None
 
 def create_or_update_conv(phone, nombre, texto, client_openai):
     conn = get_db_connection()
@@ -106,50 +112,52 @@ def create_or_update_conv(phone, nombre, texto, client_openai):
         cur.execute("SELECT conversation_id, fecha_actualizacion FROM leads WHERE telefono = ?", (phone,))
         res = cur.fetchone()
         
-        ahora = datetime.datetime.utcnow()
+        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+        ahora = datetime.datetime.now(tz_arg)
+        ahora_str = ahora.strftime('%Y-%m-%d %H:%M:%S')
         
-        if res and res['conversation_id']:
-            ultima_vez_str = res['fecha_actualizacion']
-            # sqlite guarda las fechas como texto por ende las parseamos a objeto datetime
+        if res and res[0]:
+            ultima_vez_str = res[1]
             if isinstance(ultima_vez_str, str):
+                if '.' in ultima_vez_str:
+                    ultima_vez_str = ultima_vez_str.split('.')[0]
                 ultima_vez = datetime.datetime.strptime(ultima_vez_str, '%Y-%m-%d %H:%M:%S')
             else:
                 ultima_vez = ultima_vez_str
             
-            # si la ultima charla fue hace mas de 24 horas...
+            if ultima_vez.tzinfo is None:
+                ultima_vez = tz_arg.localize(ultima_vez)
+            
             if (ahora - ultima_vez).days >= 1:
                 c_id = client_openai.conversations.create().id
-                # actualizamos manualmente fecha_actualizacion ya que sqlite no tiene on update automatico
                 cur.execute("""
                     UPDATE leads 
-                    SET conversation_id = ?, ultimo_mensaje = ?, fecha_actualizacion = datetime('now') 
+                    SET conversation_id = ?, ultimo_mensaje = ?, fecha_actualizacion = ? 
                     WHERE telefono = ?
-                """, (c_id, texto, phone))
+                """, (c_id, texto, ahora_str, phone))
             else:
-                c_id = res['conversation_id']
+                c_id = res[0]
                 cur.execute("""
                     UPDATE leads 
-                    SET ultimo_mensaje = ?, fecha_actualizacion = datetime('now') 
+                    SET ultimo_mensaje = ?, fecha_actualizacion = ? 
                     WHERE telefono = ?
-                """, (texto, phone))
+                """, (texto, ahora_str, phone))
             c_id_resultado = c_id
         else:
-            # caso de usuario nuevo
             c_id = client_openai.conversations.create().id
             cur.execute("""
-                INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje) 
-                VALUES (?, ?, ?, ?)
-            """, (phone, nombre, c_id, texto))
+                INSERT INTO leads (telefono, nombre, conversation_id, ultimo_mensaje, fecha_actualizacion, fecha_creacion) 
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (phone, nombre, c_id, texto, ahora_str, ahora_str))
             c_id_resultado = c_id
         
         conn.commit()
     except Exception as e:
-        logger.error(f"error en gestion de hilos: {e}")
+        logger.error(f"error en gestion de hilos: {e}", exc_info=True)
         c_id_resultado = None
     finally:
         if 'cur' in locals(): cur.close()
-        conn.close() # liberamos el archivo de la db de inmediato
-        
+        conn.close()
     return c_id_resultado
 
 def if_primer_contacto(phone):
@@ -157,13 +165,16 @@ def if_primer_contacto(phone):
     if not conn: return False
     try:
         cur = conn.cursor()
-        # usamos modificadores de fecha de sqlite para calcular el dia anterior
+        
+        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+        hace_un_dia = (datetime.datetime.now(tz_arg) - datetime.timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+        
         query = """
             SELECT 1 FROM leads 
             WHERE telefono = ? 
-            AND fecha_actualizacion > datetime('now', '-1 day')
+            AND fecha_actualizacion > ?
         """
-        cur.execute(query, (phone,))
+        cur.execute(query, (phone, hace_un_dia))
         res = cur.fetchone()
         return res is None
         
@@ -173,7 +184,6 @@ def if_primer_contacto(phone):
     finally:
         if 'cur' in locals(): cur.close()
         conn.close()
-
 def guardar_contacto_lead(nombre, telefono, email, empresa='-', puesto='-', interes='-'):
     """
     guarda o actualiza los datos de perfil corporativo de un lead usando un upsert sobre el telefono.
@@ -186,21 +196,22 @@ def guardar_contacto_lead(nombre, telefono, email, empresa='-', puesto='-', inte
     try:
         cur = conn.cursor()
         
-        # empaquetamos los datos corporativos extras en el campo de ultimo mensaje
+        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+        ahora_str = datetime.datetime.now(tz_arg).strftime('%Y-%m-%d %H:%M:%S')
+        
         nota_datos = f"Empresa: {empresa} | Puesto: {puesto} | Interes: {interes}"
 
-        # query para sqlite basada en el telefono como clave unica
         sql_upsert = """
-            INSERT INTO leads (nombre, telefono, email, ultimo_mensaje) 
-            VALUES (?, ?, ?, ?)
+            INSERT INTO leads (nombre, telefono, email, ultimo_mensaje, fecha_actualizacion, fecha_creacion) 
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(telefono) DO UPDATE SET
                 nombre = excluded.nombre,
                 email = excluded.email,
                 ultimo_mensaje = excluded.ultimo_mensaje,
-                fecha_actualizacion = datetime('now')
+                fecha_actualizacion = excluded.fecha_actualizacion
         """
         
-        cur.execute(sql_upsert, (nombre, telefono, email, nota_datos))
+        cur.execute(sql_upsert, (nombre, telefono, email, nota_datos, ahora_str, ahora_str))
         conn.commit()
         
         logger.info(f"Lead {telefono} registrado/actualizado con exito en sqlite")
